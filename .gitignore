@@ -98,6 +98,8 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+/.source-sync.lock
+.offlinegpt-sync-*
 
 # Curated icons and synthetic documentation screenshots are intentional assets.
 # Do not ignore all PNG/ICO/SVG files: the build needs frontend-source/public.

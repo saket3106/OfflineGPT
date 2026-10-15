@@ -1,12 +1,16 @@
 # First private GitHub upload with GitHub Desktop
 
-Nothing has been uploaded by this preparation. The staged folder is not yet a Git repository and has no remote. Only continue after reviewing its contents and the preparation report. Do not add the large original project or the separate private audit-report folder.
+The owner has now published this working folder to the private `saket3106/OfflineGPT` repository. Its existing Git history and remote must be preserved. For ongoing development use [SOURCE_SYNC.md](SOURCE_SYNC.md), review/commit locally in GitHub Desktop, then push only when you approve uploading. Do not initialize a replacement repository or add the large original project/private audit-report folders.
+
+The first-publication instructions below are retained for a **new source copy only**. They are not instructions to recreate or republish the existing repository. Synchronization tooling performs no commit, push or visibility change.
 
 ## 1. Install and sign in
 
 Install [GitHub Desktop](https://desktop.github.com/) and sign in to your GitHub account. Git stores version history on your PC; GitHub is the hosting service. A **commit** is a local saved version. **Publish/push** sends committed files to GitHub.
 
 ## 2. Create a local repository in the staged folder
+
+**Skip this section for the existing published working folder.** In GitHub Desktop, add/open its existing local repository instead. Never delete or replace `.git` to resolve a sync conflict.
 
 The simplest path avoids creating a second nested folder:
 

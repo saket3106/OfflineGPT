@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "managed": {
+    "Offline GPT.spec": {
+      "source": "7d095a988c6e6386e3c457ee9805deb2f70bf7b05a07a91512bbc6f5d51e63d6",
+      "repository": "7d095a988c6e6386e3c457ee9805deb2f70bf7b05a07a91512bbc6f5d51e63d6"
+    },
+    "app.py": {
+      "source": "d0c136d5c3cb6f42f0037851b57081655c36c9aa6b09fcdf3f4a9493f101d6a5",
+      "repository": "d0c136d5c3cb6f42f0037851b57081655c36c9aa6b09fcdf3f4a9493f101d6a5"
+    },
+    "assistant_system_prompt.md": {
+      "source": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19",
+      "repository": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19"
+    },
+    "code_engine.py": {
+      "source": "417c2da9a76b9089d9750f7c13049ea0b0819f400eb7e7691c88284a6f25cd14",
+      "repository": "417c2da9a76b9089d9750f7c13049ea0b0819f400eb7e7691c88284a6f25cd14"
+    },
+    "conversation_memory.py": {
+      "source": "afd1df746bcebf17fe038021fc5a2d14e53360d4e2f4edca841de56a769e5ed7",
+      "repository": "afd1df746bcebf17fe038021fc5a2d14e53360d4e2f4edca841de56a769e5ed7"
+    },
+    "document_tools.py": {
+      "source": "2aa23fa97737c6b64135be0683b43f328a4cf60dffdde46dce4b88c143f46a26",
+      "repository": "2aa23fa97737c6b64135be0683b43f328a4cf60dffdde46dce4b88c143f46a26"
+    },
+    "evals/datasets/core.jsonl": {
+      "source": "bb868da0a87dcf95befef99a0577d8ad8c082cb51df9cd14f14708c18832ab29",
+      "repository": "bb868da0a87dcf95befef99a0577d8ad8c082cb51df9cd14f14708c18832ab29"
+    },
+    "evals/runner.py": {
+      "source": "4bce53b3de8de35a8f2d262e2bf89931b25f8ac2ba750ce3f30e620a36ceceb4",
+      "repository": "4bce53b3de8de35a8f2d262e2bf89931b25f8ac2ba750ce3f30e620a36ceceb4"
+    },
+    "frontend-source/index.html": {
+      "source": "dac3ada84d64ade90ff60447bb3668034cec0bfbc854c14727642297b4b43f6d",
+      "repository": "dac3ada84d64ade90ff60447bb3668034cec0bfbc854c14727642297b4b43f6d"
+    },
+    "frontend-source/package.json": {
+      "source": "db50f2805a73244ff2eb08813d207c64d20a185ec24cae31ac09a009c669e57d",
+      "repository": "db50f2805a73244ff2eb08813d207c64d20a185ec24cae31ac09a009c669e57d"
+    },
+    "frontend-source/pnpm-lock.yaml": {
+      "source": "79ab6e668fdc71e0d2bacddd90cb65b00c012f9ebc354eb24cc066c2046a2295",
+      "repository": "79ab6e668fdc71e0d2bacddd90cb65b00c012f9ebc354eb24cc066c2046a2295"
+    },
+    "frontend-source/pnpm-workspace.yaml": {
+      "source": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
+      "repository": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353"
+    },
+    "frontend-source/postcss.config.js": {
+      "source": "450f0af4f4c1ecc4c7180f2e364c8a59bfed69dd350fb6b47bce8641c2a37786",
+      "repository": "450f0af4f4c1ecc4c7180f2e364c8a59bfed69dd350fb6b47bce8641c2a37786"
+    },
+    "frontend-source/public/brand/core-16.png": {
+      "source": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25",
+      "repository": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25"
+    },
+    "frontend-source/public/brand/core-24.png": {
+      "source": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05",
+      "repository": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05"
+    },
+    "frontend-source/public/brand/core-256.png": {
+      "source": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8",
+      "repository": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8"
+    },
+    "frontend-source/public/brand/core-32.png": {
+      "source": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb",
+      "repository": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb"
+    },
+    "frontend-source/public/brand/core-64.png": {
+      "source": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba",
+      "repository": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba"
+    },
+    "frontend-source/public/brand/core.svg": {
+      "source": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95",
+      "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
+    },
+    "frontend-source/public/brand/frame-16.png": {
+      "source": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25",
+      "repository": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25"
+    },
+    "frontend-source/public/brand/frame-24.png": {
+      "source": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05",
+      "repository": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05"
+    },
+    "frontend-source/public/brand/frame-256.png": {
+      "source": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8",
+      "repository": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8"
+    },
+    "frontend-source/public/brand/frame-32.png": {
+      "source": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb",
+      "repository": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb"
+    },
+    "frontend-source/public/brand/frame-64.png": {
+      "source": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba",
+      "repository": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba"
+    },
+    "frontend-source/public/brand/frame.svg": {
+      "source": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95",
+      "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
+    },
+    "frontend-source/public/brand/offline-gpt-light.svg": {
+      "source": "3a09a404c59eeef93b9722378145412957ad48d75875b19095072b01bc389c8c",
+      "repository": "3a09a404c59eeef93b9722378145412957ad48d75875b19095072b01bc389c8c"
+    },
+    "frontend-source/public/brand/offline-gpt-windows.svg": {
+      "source": "d0eecddef4f9c1a6f7efd3ff7d8fa346a9a2a9697b8c0b5d53211bb2a3b9b956",
+      "repository": "d0eecddef4f9c1a6f7efd3ff7d8fa346a9a2a9697b8c0b5d53211bb2a3b9b956"
+    },
+    "frontend-source/public/brand/offline-gpt.ico": {
+      "source": "c954b5c88f96a3db924350ea9fa0e9e48b187ae5cae83dd186d9b47f4d173b2e",
+      "repository": "c954b5c88f96a3db924350ea9fa0e9e48b187ae5cae83dd186d9b47f4d173b2e"
+    },
+    "frontend-source/public/brand/offline-gpt.svg": {
+      "source": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95",
+      "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
+    },
+    "frontend-source/public/brand/portal-16.png": {
+      "source": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25",
+      "repository": "97432b39d119eba1a4d71e3e2078b0cae0374be0d4758ae27f3de71bbca6df25"
+    },
+    "frontend-source/public/brand/portal-24.png": {
+      "source": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05",
+      "repository": "7cc96e8653decf6f6a638f6fdfec9cec10fd88846e70205f66f7873d65dfed05"
+    },
+    "frontend-source/public/brand/portal-256.png": {
+      "source": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8",
+      "repository": "ad964ed0c1d8227625f781874c4a6d175aac065debd0321282184498dde03cc8"
+    },
+    "frontend-source/public/brand/portal-32.png": {
+      "source": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb",
+      "repository": "a6a3cdf67a88ab8967cc7949daaee0caa115fdaf92d8daed3599f42be5564bcb"
+    },
+    "frontend-source/public/brand/portal-64.png": {
+      "source": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba",
+      "repository": "eaa8f2d9a1896e9a2b7c4026d8744a95251bd05453ba3ec083a6da756a3b90ba"
+    },
+    "frontend-source/public/brand/portal.svg": {
+      "source": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95",
+      "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
+    },
+    "frontend-source/src/main.jsx": {
+      "source": "8226da10e8948a4dc8f30ca6b6c36edf0ea38f247ad06b32ee307fb1db015001",
+      "repository": "8226da10e8948a4dc8f30ca6b6c36edf0ea38f247ad06b32ee307fb1db015001"
+    },
+    "frontend-source/src/styles.css": {
+      "source": "ffbe5c70e8a8de2585f730d25fd7e700cf2d6514bcecebfa416d327884980701",
+      "repository": "ffbe5c70e8a8de2585f730d25fd7e700cf2d6514bcecebfa416d327884980701"
+    },
+    "frontend-source/src/workspace.jsx": {
+      "source": "442744af03de82b9e9a61dedf2ca8da95f43d0fbb35fddedbc56fa50e41d82a4",
+      "repository": "442744af03de82b9e9a61dedf2ca8da95f43d0fbb35fddedbc56fa50e41d82a4"
+    },
+    "frontend-source/tailwind.config.js": {
+      "source": "682490b7ada1aa4f398147244288521feb6ad88d7228cb67b5a3ada0df23aa08",
+      "repository": "682490b7ada1aa4f398147244288521feb6ad88d7228cb67b5a3ada0df23aa08"
+    },
+    "frontend-source/vite.config.js": {
+      "source": "bf7fda1ed188a3774f1bc14cf2ce4c6fa4e20664f953d9697dd54d8b49ff9ecc",
+      "repository": "bf7fda1ed188a3774f1bc14cf2ce4c6fa4e20664f953d9697dd54d8b49ff9ecc"
+    },
+    "grounding.py": {
+      "source": "43274963c55a826f2550d51ae9caf3e82850376af9b8de2a13e0c02a65ca2249",
+      "repository": "43274963c55a826f2550d51ae9caf3e82850376af9b8de2a13e0c02a65ca2249"
+    },
+    "image_pipeline.py": {
+      "source": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67",
+      "repository": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67"
+    },
+    "integrated_runtime.py": {
+      "source": "467f3ee5f97008bad09fff54291552bb0937a3cf9a2825cf4b26f77ad6b8606e",
+      "repository": "467f3ee5f97008bad09fff54291552bb0937a3cf9a2825cf4b26f77ad6b8606e"
+    },
+    "intelligence.py": {
+      "source": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3",
+      "repository": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3"
+    },
+    "logic_engine.py": {
+      "source": "62c59b3c1b7be4e7fa4d9de61c73218dfb366a7b99c46a0485c1a6424e5bb594",
+      "repository": "62c59b3c1b7be4e7fa4d9de61c73218dfb366a7b99c46a0485c1a6424e5bb594"
+    },
+    "math_engine.py": {
+      "source": "468f5b50f0e3b841fc22cc96a2e0d40ff467c9a812e7a3350addef822a64b35d",
+      "repository": "468f5b50f0e3b841fc22cc96a2e0d40ff467c9a812e7a3350addef822a64b35d"
+    },
+    "memory_manager.py": {
+      "source": "a510812435bb5976ceb588b1db29994534ff4207fe46e136e54ea8d4a3e08770",
+      "repository": "a510812435bb5976ceb588b1db29994534ff4207fe46e136e54ea8d4a3e08770"
+    },
+    "offline_gpt_config.example.json": {
+      "source": "a43d43a8fe69edc21a8176c9afcf5aba2af466d533711de23dc9be63d4f74adf",
+      "repository": "a43d43a8fe69edc21a8176c9afcf5aba2af466d533711de23dc9be63d4f74adf"
+    },
+    "rag_engine.py": {
+      "source": "01634fee2acda1cb38e9b725f7113b2be91d9f3b00c4775e68feef1bf587916d",
+      "repository": "01634fee2acda1cb38e9b725f7113b2be91d9f3b00c4775e68feef1bf587916d"
+    },
+    "router.py": {
+      "source": "f7a51f3205b64ef9b23b9d012d2d554c0ccb345c1dcebb6fb45433ebe184ec7c",
+      "repository": "f7a51f3205b64ef9b23b9d012d2d554c0ccb345c1dcebb6fb45433ebe184ec7c"
+    },
+    "tests/test_comprehensive_sprint.py": {
+      "source": "845edfe250d91e541292bdf372459e7d9b26a754cd285b0abf0753577a1e7409",
+      "repository": "845edfe250d91e541292bdf372459e7d9b26a754cd285b0abf0753577a1e7409"
+    },
+    "tests/test_engineering_invariants.py": {
+      "source": "22feffd9a7d413b5771e82267ad6ea603a1fae8b76ad5990a0aed504f4958a6e",
+      "repository": "22feffd9a7d413b5771e82267ad6ea603a1fae8b76ad5990a0aed504f4958a6e"
+    },
+    "tests/test_flux_worker_image_flow.py": {
+      "source": "301a0d2aebdd0a1ac3cf08069c181daae10abf06082397cce1a5d264da0f9ef2",
+      "repository": "301a0d2aebdd0a1ac3cf08069c181daae10abf06082397cce1a5d264da0f9ef2"
+    },
+    "tests/test_generator_semantics.py": {
+      "source": "58c2d0f484042d995fba52c63ffc83ad5069295259f95c86820d7a205b0dd24c",
+      "repository": "58c2d0f484042d995fba52c63ffc83ad5069295259f95c86820d7a205b0dd24c"
+    },
+    "tests/test_history_coverage.py": {
+      "source": "6d81852bde34e19acc83d3b9bfb9917cbfb13d065621f9105fa4a62379e46114",
+      "repository": "6d81852bde34e19acc83d3b9bfb9917cbfb13d065621f9105fa4a62379e46114"
+    },
+    "tests/test_image_library.py": {
+      "source": "2b712ab80ecb7c3172497e5a5ba84bd0a0d05ef1f3e6209273b89df3e5d967ed",
+      "repository": "2b712ab80ecb7c3172497e5a5ba84bd0a0d05ef1f3e6209273b89df3e5d967ed"
+    },
+    "tests/test_image_optimization.py": {
+      "source": "4d736773aa9b158e794a28a40da22f48717b5cd1b02a8f4945d9302ecace8ea4",
+      "repository": "4d736773aa9b158e794a28a40da22f48717b5cd1b02a8f4945d9302ecace8ea4"
+    },
+    "tests/test_image_pipeline.py": {
+      "source": "888bfd97e110cb40011d9e22e27276ffd3252aeea3480fbc4812eb953aa90619",
+      "repository": "888bfd97e110cb40011d9e22e27276ffd3252aeea3480fbc4812eb953aa90619"
+    },
+    "tests/test_installed_e2e_repairs.py": {
+      "source": "941238f3f27f329990793042b665481b560c80d1f15da389e4f9b09b4f194296",
+      "repository": "941238f3f27f329990793042b665481b560c80d1f15da389e4f9b09b4f194296"
+    },
+    "tests/test_instant_read_aloud.py": {
+      "source": "e3c5aac8856575f4ae1843da2fe45aebf38346a75246419ad89469d62ffda85f",
+      "repository": "e3c5aac8856575f4ae1843da2fe45aebf38346a75246419ad89469d62ffda85f"
+    },
+    "tests/test_intelligence_v2.py": {
+      "source": "1f740718adeacc1f962228e78d25ff95b16d4b4db4b5b6e98a9137141368fa65",
+      "repository": "1f740718adeacc1f962228e78d25ff95b16d4b4db4b5b6e98a9137141368fa65"
+    },
+    "tests/test_library_qol.py": {
+      "source": "855eef8d3fe5e8c1f96e1c6267d0ced2e76841693a9ad57a0bd2099eb4dcd6d1",
+      "repository": "855eef8d3fe5e8c1f96e1c6267d0ced2e76841693a9ad57a0bd2099eb4dcd6d1"
+    },
+    "tests/test_library_safety.py": {
+      "source": "9c2cb14ef65bca19b522f5fd4ea4f8fa6d394190fb6b1c26e5e307602b4128b0",
+      "repository": "9c2cb14ef65bca19b522f5fd4ea4f8fa6d394190fb6b1c26e5e307602b4128b0"
+    },
+    "tests/test_native_prompt_coverage.py": {
+      "source": "832481ce895fa6f21c29ca74039093b7580cdee75298c0318c589ad15f9c0fd4",
+      "repository": "832481ce895fa6f21c29ca74039093b7580cdee75298c0318c589ad15f9c0fd4"
+    },
+    "tests/test_output_routing.py": {
+      "source": "a2b7a217007ae4ff35090e01cfe295ecd3730b3e426d3cd37f45ba7f05a8e39b",
+      "repository": "a2b7a217007ae4ff35090e01cfe295ecd3730b3e426d3cd37f45ba7f05a8e39b"
+    },
+    "tests/test_performance_and_lifecycle.py": {
+      "source": "be0e206137281db83491bb8917ee5ac31edfecf82551b612f12bdc7f956febbf",
+      "repository": "be0e206137281db83491bb8917ee5ac31edfecf82551b612f12bdc7f956febbf"
+    },
+    "tests/test_premium_workspace.py": {
+      "source": "db28cf6981673917aab92e66c4ea29a3674e4c4ccc5e565b14362a952e30708c",
+      "repository": "db28cf6981673917aab92e66c4ea29a3674e4c4ccc5e565b14362a952e30708c"
+    },
+    "tests/test_reliability_repair.py": {
+      "source": "47959f264127106a5bafd68934c354bdb30fb80f5ca276bbe9cb1f4d33d53c94",
+      "repository": "47959f264127106a5bafd68934c354bdb30fb80f5ca276bbe9cb1f4d33d53c94"
+    },
+    "tests/test_resolution_and_warm_latency.py": {
+      "source": "14e4fabd13ec2104e399c48dd00c69978e7a573a57dd828bbd978edbfcd9ccac",
+      "repository": "14e4fabd13ec2104e399c48dd00c69978e7a573a57dd828bbd978edbfcd9ccac"
+    },
+    "tests/test_review_phase_isolation.py": {
+      "source": "4edb6cae7a1f5f98951300a866d129b654117a2232e321a6c6b2a39f4d588c59",
+      "repository": "4edb6cae7a1f5f98951300a866d129b654117a2232e321a6c6b2a39f4d588c59"
+    },
+    "tests/test_tool_workflow.py": {
+      "source": "1f887359ad6579694779a5b7eb39aed1f2ea5f1013fff81843f257726b44a5c9",
+      "repository": "1f887359ad6579694779a5b7eb39aed1f2ea5f1013fff81843f257726b44a5c9"
+    },
+    "tool_registry.py": {
+      "source": "8c5b6b5b01f2a3f1f889675ee91ae5e3e0a9c256494332a836af856a6c1db964",
+      "repository": "8c5b6b5b01f2a3f1f889675ee91ae5e3e0a9c256494332a836af856a6c1db964"
+    },
+    "tool_workflow.py": {
+      "source": "95db64c0e57d8c34d3feaec63da25d38c1b7db53d5ec44805d2614d068151fa4",
+      "repository": "95db64c0e57d8c34d3feaec63da25d38c1b7db53d5ec44805d2614d068151fa4"
+    },
+    "validators.py": {
+      "source": "fea046a73e835fbc341007f06ae071710f04ae578c85c97ef3687e226c402842",
+      "repository": "fea046a73e835fbc341007f06ae071710f04ae578c85c97ef3687e226c402842"
+    },
+    "voice_runtime.py": {
+      "source": "88f3533b40cbf055243a7696cfa112cd2e0ce38780db8c9cbc98118d439a458e",
+      "repository": "88f3533b40cbf055243a7696cfa112cd2e0ce38780db8c9cbc98118d439a458e"
+    },
+    "workspace_services.py": {
+      "source": "f8595df5e1e31b5c0dcd1cccc7fc1f94412a370588460c59fe5b24e572f2ff1e",
+      "repository": "f8595df5e1e31b5c0dcd1cccc7fc1f94412a370588460c59fe5b24e572f2ff1e"
+    }
+  },
+  "protected": {
+    "AGENTS.md": "ccea2a9a82589c121e021bf6313daad1aebce8a0eb3de1130fcd4f53e73a2cc9",
+    "README.md": "69c25b5e8afa34989b76c76a5689c5c1b10336aa3aa96d4aee93504d2ab017cf",
+    "requirements.txt": "97111a1d7b51bbea06e36061c767f491eba9c07658ed61463c69525829b76d06",
+    "tests/qt_frontend_check.py": "7ef9d59defba8835d32eecf4f74a3449693c856fd1ae75d6b0b943fa849c86df",
+    "tests/test_fast_recolor_routing.py": "525bad8831acb3809b4e0536943307c49d141844f4583ba6530c04932bd18657",
+    "tests/test_intelligence.py": "a831a0156cfd5177bd7892c28ae00d139833fcfe750995bd7a9b122d92fff536",
+    "tests/test_sprint.py": "66a0fd215dd0d827073e4d0bc67ff27c8b14e9fc8de397e5b5c7f92c2bfe60bf",
+    "tests/test_voice_image_speed.py": "5c5a99058daa7983a1cb5d7f7955c416f5795223327161bc134e1631bd71cfb0"
+  }
+}

@@ -83,4 +83,10 @@ No project-wide open-source license is selected by this preparation. Confirm own
 
 ## Publishing privately
 
+### Existing private repository workflow
+
+For approved changes from the separate development workspace, use [SOURCE_SYNC.md](docs/SOURCE_SYNC.md). Synchronization previews an exact allowlist, protects sanitized files, requires a reviewed snapshot, journals recoverable copies and leaves Git staging/commit/push manual. [Presentation roadmap](docs/GITHUB_PRESENTATION_ROADMAP.md) and [Windows distribution plan](docs/WINDOWS_DISTRIBUTION.md) define future work and release gates.
+
+The source manifest now uses portable **v2** hashes: UTF-8 text is normalized to LF and binary assets retain exact-byte hashes. Git history and publication settings are not changed by the synchronizer.
+
 Read [GITHUB_DESKTOP.md](docs/GITHUB_DESKTOP.md). Review the staging contents first; keep **Keep this code private** checked. This preparation creates no remote repository and performs no push.
