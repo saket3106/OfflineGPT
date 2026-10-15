@@ -157,7 +157,7 @@ def source_candidates(source):
                 p = Path(base) / name
                 if p.suffix.lower() in TEXT | {'.svg', '.png', '.ico'} and '.bak' not in name:
                     result.add(p.relative_to(source).as_posix())
-    result.update(p.relative_to(source).as_posix() for p in safe_path(source,'tests').glob('*.py'))
+    result.update(p.relative_to(source).as_posix() for p in safe_path(source,'tests').glob('*') if p.is_file() and p.suffix.lower() in TEXT)
     result.update(p.relative_to(source).as_posix() for p in safe_path(source,'frontend-source').glob('*') if p.is_file() and p.suffix.lower() in TEXT)
     return result
 
@@ -192,14 +192,20 @@ def dependencies(repo, proposed):
     local={PurePosixPath(p).stem for p in proposed if PurePosixPath(p).parent==PurePosixPath('.') and p.endswith('.py')}
     local.update(p.stem for p in repo.glob('*.py'))
     aliases={'PIL':'Pillow','docx':'python-docx','pptx':'python-pptx','fitz':'PyMuPDF','pymupdf':'PyMuPDF','kokoro_onnx':'kokoro-onnx','espeakng_loader':'espeakng-loader','imageio_ffmpeg':'imageio-ffmpeg'}
+    test_local={p.stem for p in (repo/'tests').glob('*.py') if proposed.get('tests/'+p.name, b'') is not None}
+    test_local.update(PurePosixPath(p).stem for p,data in proposed.items() if data is not None and PurePosixPath(p).parent==PurePosixPath('tests') and p.endswith('.py'))
     imports=set()
     for rel,data in proposed.items():
         if not rel.endswith('.py') or data is None:continue
         try:tree=ast.parse(data.decode())
         except (SyntaxError,UnicodeError):continue
+        file_imports=set()
         for node in ast.walk(tree):
-            if isinstance(node,ast.Import):imports.update(alias.name.split('.')[0] for alias in node.names)
-            elif isinstance(node,ast.ImportFrom) and node.module and node.level==0:imports.add(node.module.split('.')[0])
+            if isinstance(node,ast.Import):file_imports.update(alias.name.split('.')[0] for alias in node.names)
+            elif isinstance(node,ast.ImportFrom) and node.module and node.level==0:file_imports.add(node.module.split('.')[0])
+        # unittest discovery deliberately places tests/ on its import path.
+        # That does not make test-only helpers available to application code.
+        imports.update(file_imports-test_local if PurePosixPath(rel).parent==PurePosixPath('tests') else file_imports)
     external=imports-set(sys.stdlib_module_names)-local
     normalize=lambda n:re.sub(r'[-_.]+','-',n).lower()
     declared_normal={normalize(n) for n in declared}

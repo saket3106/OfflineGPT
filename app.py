@@ -1973,6 +1973,16 @@ class ChatWorker(CancelableWorker):
             visible_total=_attach_deterministic_required_fields(visible_total)
             visible_total=correct_schedule_summary(visible_total, str(self.analysis.get('prompt') or ''))
             self._debug_task_trace('AGGREGATED_RESULT',aggregated_text=visible_total)
+            def partial_history_evidence():
+                from conversation_memory import history_claim_ledger,history_claim_evidence_view
+                ledger=history_claim_ledger(self.analysis.get('memory_sources',[]))
+                self.analysis['memory_claim_evidence']={
+                    'claims':[{k:claim[k] for k in ('id','sourceId','status','kind','speaker','supersededBy')} for claim in ledger['claims']],
+                    'relations':ledger['relations'],'sourceIds':ledger['sourceIds'],
+                    'omittedSourceIds':ledger['omittedSourceIds'],'truncatedSourceIds':ledger['truncatedSourceIds'],
+                    'coverageComplete':ledger['displayCoverageComplete'],'retrievedLedgerCoverageComplete':ledger['coverageComplete'],
+                    'displayTruncatedSourceIds':ledger['displayTruncatedSourceIds'],'semanticCertification':False}
+                return calculator_evidence(history_claim_evidence_view(self.analysis.get('memory_sources',[]),workflow.reference,ledger),tool_executions)
             def response_failures(value):
                 errors=validate_response(value,self.analysis)
                 if not is_multi_task and not finalize_response_text(value,self.analysis,raw_user).strip():
@@ -2126,8 +2136,7 @@ class ChatWorker(CancelableWorker):
             if failures and self.analysis.get('memory_request') and not is_multi_task:
                 from conversation_memory import history_provenance_failures,history_evidence_fallback
                 if failures:
-                    visible_total=history_evidence_fallback(self.analysis['memory_sources'],workflow.reference)
-                    visible_total=calculator_evidence(visible_total,tool_executions)
+                    visible_total=partial_history_evidence()
                     self.analysis['memory_synthesis_partial']=True
             if failures:
                 if is_multi_task:
@@ -2208,9 +2217,9 @@ class ChatWorker(CancelableWorker):
             if self.analysis.get('memory_request') and not is_multi_task and not self.analysis.get('memory_project_notes'):
                 from conversation_memory import history_has_support,history_change_evidence_missing,history_evidence_fallback
                 if history_change_evidence_missing(raw_user,self.analysis.get('memory_sources',[])):
-                    visible_total=calculator_evidence(history_evidence_fallback(self.analysis.get('memory_sources',[]),workflow.reference),tool_executions)
+                    if not self.analysis.get('memory_claim_evidence'):visible_total=partial_history_evidence()
                     self.analysis['memory_synthesis_partial']=True
-                    failures.append('Retrieved operation/error records do not establish completed software changes; original evidence shown as a partial view.')
+                    failures.append('Completed-change evidence is incomplete; supported claim-level reports and operation records retained with explicit unresolved status.')
                 elif not history_has_support(raw_user,self.analysis.get('memory_sources',[])):
                     visible_total="I can't verify that claim from the information available."
                     self.analysis['memory_answer_status']='unsupported'
@@ -2317,6 +2326,7 @@ class ChatWorker(CancelableWorker):
                 'retries': attempts,'retry_count':attempts+recovery_retry_count,
                 'tools': tool_executions,
                 'validation_status': 'unsupported' if self.analysis.get('memory_answer_status')=='unsupported' else 'passed' if not failures else 'partial',
+                'memory_claim_evidence':self.analysis.get('memory_claim_evidence'),
                 'runtime': self._runtime_metadata(tool_executions),
                 'lifecycle': lifecycle_dict,
             })

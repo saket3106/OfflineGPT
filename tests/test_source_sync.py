@@ -265,4 +265,18 @@ class SourceSyncTests(unittest.TestCase):
         (self.repo/'README.md').write_text('ghp_'+'a'*36)
         with self.assertRaises(sync.SyncError):sync.refresh_manifest(self.repo,self.git)
 
+    def test_test_fixtures_are_discovered_and_test_imports_are_scoped(self):
+        (self.source/'tests').mkdir();(self.repo/'tests').mkdir()
+        (self.source/'tests/cases.json').write_text('{"synthetic":true}')
+        self.assertIn('tests/cases.json',sync.source_candidates(self.source))
+        proposed={'tests/check.py':b'from helper_test import check\n','tests/helper_test.py':b'def check(): pass\n'}
+        self.assertEqual(sync.dependencies(self.repo,proposed)['undeclaredImports'],[])
+        proposed['app.py']=b'import helper_test\n'
+        self.assertIn('helper_test',sync.dependencies(self.repo,proposed)['undeclaredImports'])
+
+    def test_removed_test_helper_does_not_hide_missing_dependency(self):
+        (self.repo/'tests').mkdir();(self.repo/'tests/helper_test.py').write_text('VALUE=1')
+        result=sync.dependencies(self.repo,{'tests/check.py':b'import helper_test\n','tests/helper_test.py':None})
+        self.assertIn('helper_test',result['undeclaredImports'])
+
 if __name__=='__main__':unittest.main()

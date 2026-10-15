@@ -139,6 +139,35 @@ def history_response_failures(question,answer,sources):
     if not target_facts or all(any(re.search(r'\b'+re.escape(re.match(r'\d+(?:\.\d+)?',v)[0])+r'\b',answer) for v in f['userReportedMeasurements']) for f in target_facts):return []
     return ['The answer claims there are no measurements despite these actual user reports: '+json.dumps(target_facts[:4])+'. Report the measurements as user-reported, not independently verified. Preserve uncertainty about untested features.']
 
+def affirmative_change_source_ids(sources):
+    """Identify explicit affirmative software-change reports, not truth proofs.
+
+    A past-tense token inside a denial, future conditional, counterexample or
+    unrelated update is not a completed software-change report. This is a
+    narrow polarity gate; it does not establish semantic entailment between an
+    arbitrary report and an arbitrary claim or independently verify user prose.
+    """
+    change=r'\b(?:added|implemented|introduced|updated|fixed|optimized|reduced\s+(?:average|latency)|user.tested|manually\s+(?:tested|verified))\b'
+    software=r'\b(?:cach\w*|parser|module|code|software|app(?:lication)?|offline\s*gpt|prompt|response|word.count|source.?id|citation|chronology|template|answer|latency|benchmark|tests?|performance|model|routine|validation|logs?)\b'
+    accepted=set()
+    for source in sources:
+        if source.get('evidenceKind') not in {'USER_STATEMENT','USER_NOTE','APPLICATION_TOOL_RECORD'}:continue
+        excerpt=str(source.get('excerpt',''))[:24000].replace('\u2019',"'")
+        clauses=re.split(r'[.!?;\n]+|,?\s+(?:but|however|whereas|nevertheless)\s+',excerpt,flags=re.I)
+        for clause in clauses:
+            if not re.search(software,clause,re.I):continue
+            if re.match(r'\s*(?:counterexample|incorrect|false|hypothetical|requested|planned)\s*(?:claim)?\s*:',clause,re.I):continue
+            for match in re.finditer(change,clause,re.I):
+                prefix=clause[max(0,match.start()-100):match.start()]
+                auxiliaries=r'(?:(?:been|be|yet|actually|successfully|necessarily|fully|already|ever|have|had|has)\s+)*'
+                denial=r"\b(?:not|never|hasn't|haven't|hadn't|isn't|wasn't|weren't|didn't|doesn't|won't|wouldn't|couldn't|shouldn't)\s+"+auxiliaries+r'$'
+                future=r'\b(?:would|could|should|might|may|will)\s+'+auxiliaries+r'$'
+                if re.search(denial,prefix,re.I) or re.search(future,prefix,re.I):continue
+                if re.search(r'\bif\b[^;.!?]{0,80}$',prefix,re.I):continue
+                if source.get('id'):accepted.add(source['id'])
+    return accepted
+
+
 def history_provenance_failures(answer,sources):
     """Check observable citation/date obligations, not semantic truth by fiat."""
     if not sources:return []
@@ -197,7 +226,7 @@ def history_provenance_failures(answer,sources):
     # report for an asserted implementation milestone.
     change_claim=r'\b(?:added|implemented|introduced|updated|fixed|optimized|reduced\s+(?:average|latency)|user.tested|manually\s+(?:tested|verified))\b'
     software_subject=r'\b(?:cach\w*|parser|module|code|software|app(?:lication)?|OfflineGPT|prompt|response|word.count|source.?id|citation|chronology|template|answer|latency|benchmark|tests?|performance|model|routine|validation|logs?)\b'
-    source_reports={s['id'] for s in sources if s.get('evidenceKind') in {'USER_STATEMENT','USER_NOTE','APPLICATION_TOOL_RECORD'} and re.search(change_claim,s.get('excerpt',''),re.I)}
+    source_reports=affirmative_change_source_ids(sources)
     for line in asserted:
         if not re.search(change_claim,line,re.I) or not re.search(software_subject,line,re.I):continue
         if re.search(r'\b(?:if|could|would|should|proposed|requested|attempted|not|never)\b[^.!?\n]{0,45}'+change_claim,line,re.I):continue
@@ -268,6 +297,143 @@ def select_history_evidence(sources,limit):
             source=remaining[min(len(remaining)-1,((2*index+1)*len(remaining))//(2*slots))]
             selected[source['id']]=source
     return sorted(selected.values(),key=lambda s:(s.get('created',0),str(s['id'])))
+
+
+def history_claim_ledger(sources):
+    """Bounded claims from original spans/structured facts, never model prose.
+
+    States describe evidence/provenance, not arbitrary semantic truth. Explicit
+    corrections can supersede a uniquely identified earlier *report*; separate
+    trials, ambiguous targets and cross-chat guesses remain unresolved.
+    """
+    from decimal import Decimal,localcontext
+    meaningful=[s for s in sources if s.get('id') and str(s.get('excerpt','')).strip()]
+    selected=select_history_evidence(meaningful,12)
+    claims=[];relations=[];truncated=[];omitted=[]
+    change=r'\b(?:added|implemented|introduced|updated|fixed|optimized|tested|verified|reduced)\b'
+    measurement=re.compile(r'\b(sampling|generation|export|transcription|synthesis|decode|encoding|loading|latency)\b(?:\s+(?:itself|time|duration))?\s*(?:took|takes|was|is|lasted|=|:)\s*(\d+(?:\.\d+)?)\s*(milliseconds?|seconds?|minutes?|ms|sec|s)\b',re.I)
+    for source in selected:
+        original=str(source['excerpt']);text=original[:2400]
+        if len(original)>len(text):truncated.append(source['id'])
+        boundaries=list(re.finditer(r'[;\n]+|(?<=[.!?])\s+|,\s+(?:but|however|whereas|nevertheless)\s+',text,re.I))
+        spans=[];start=0
+        for boundary in boundaries:
+            spans.append((start,boundary.start()));start=boundary.end()
+        spans.append((start,len(text)))
+        for ordinal,(start,end) in enumerate(spans,1):
+            raw=text[start:end];left=len(raw)-len(raw.lstrip());right=len(raw.rstrip())
+            start+=left;end=start+max(0,right-left)
+            quote=text[start:end]
+            if not quote:continue
+            if len(claims)>=96:omitted.append(source['id']);break
+            kind=source.get('evidenceKind','UNVERIFIED_RECORD');state='UNRESOLVED';claim_kind='statement'
+            role=source.get('role') or ('user' if kind.startswith('USER_') else 'application' if kind.startswith('APPLICATION_') else 'unknown')
+            if kind=='USER_REQUEST':state='REQUESTED'
+            elif kind=='USER_ERROR_REPORT':state='REPORTED';claim_kind='error'
+            elif kind in {'USER_STATEMENT','USER_NOTE'}:
+                denied=False
+                for match in re.finditer(change,quote,re.I):
+                    prefix=quote[max(0,match.start()-70):match.start()].replace('\u2019',"'")
+                    if re.search(r"\b(?:not|never|hasn't|haven't|wasn't|isn't|didn't)\s+(?:(?:been|be|yet|actually|successfully|ever|fully)\s+)*$",prefix,re.I):denied=True
+                if denied:state='DENIED';claim_kind='software_change'
+                elif re.search(r'\b(?:not|never|didn.t|haven.t)\s+(?:actually\s+|yet\s+)?(?:tried|attempted|attempting)\b',quote,re.I):state='DENIED';claim_kind='attempt_report'
+                elif re.search(r'\b(?:tried|attempted|attempting)\b.{0,70}\b(?:fix|repair|update|optimi[sz]e|implement|change)\b',quote,re.I):state='ATTEMPTED';claim_kind='software_change'
+                elif re.search(r'\b(?:asked|requested|wanted|planned|proposed)\b.{0,80}\b(?:fix|repair|update|optimi[sz]e|implement|change)\b',quote,re.I):state='REQUESTED';claim_kind='software_change'
+                elif re.match(r'\s*(?:counterexample|incorrect|false|hypothetical)\s*(?:claim)?\s*:',quote,re.I) or re.search(r'\b(?:if|would|could|should|might|will)\b.{0,60}'+change,quote,re.I):state='UNRESOLVED'
+                else:
+                    state='REPORTED'
+                    if affirmative_change_source_ids([dict(source,excerpt=quote)]):claim_kind='software_change'
+            item={'id':source['id']+'.C'+str(ordinal),'sourceId':source['id'],'chatId':source.get('chatId'),
+                  'date':source.get('date','unknown date'),'created':source.get('created'),
+                  'speaker':role,'evidenceKind':kind,'status':state,'kind':claim_kind,
+                  'quote':quote,'spanStart':start,'spanEnd':end,'supersededBy':[]}
+            item['measurements']=[]
+            if state=='REPORTED' and kind in {'USER_STATEMENT','USER_NOTE'}:
+                for metric,value,unit in measurement.findall(quote):
+                    scale=.001 if unit.lower() in {'ms','millisecond','milliseconds'} else 60 if unit.lower().startswith('min') else 1
+                    trial=re.search(r'\b(?i:run|trial|test)\s+([A-Z][\w-]*|\d+)\b',quote)
+                    with localcontext() as context:
+                        context.prec=max(28,len(value)+6)
+                        seconds=Decimal(value)*Decimal(str(scale))
+                    if not math.isfinite(float(seconds)):continue
+                    item['measurements'].append({'metric':metric.lower(),'seconds':float(seconds),'secondsExact':str(seconds),'trial':trial[1] if trial else None,'anchors':sorted(normalize_anchor(a) for a in memory_anchors(quote))})
+            claims.append(item)
+        facts=source.get('runtimeFacts') or {}
+        duration=facts.get('duration_seconds') if isinstance(facts,dict) else None
+        if source.get('evidenceKind') in {'APPLICATION_IMAGE_TELEMETRY','APPLICATION_IMAGE_COMPLETION_RECORD','APPLICATION_TOOL_RECORD'} and type(duration) in (int,float) and math.isfinite(duration) and duration>=0 and len(claims)<96:
+            claims.append({'id':source['id']+'.OP','sourceId':source['id'],'chatId':source.get('chatId'),
+                           'date':source.get('date','unknown date'),'created':source.get('created'),'speaker':'application',
+                           'evidenceKind':source['evidenceKind'],'status':'CONFIRMED','kind':'operation_duration',
+                           'durationSeconds':duration,'quote':None,'spanStart':None,'spanEnd':None,
+                           'supersededBy':[],'measurements':[]})
+        elif type(duration) in (int,float) and math.isfinite(duration) and duration>=0 and len(claims)>=96:omitted.append(source['id'])
+    # No inference from chronology alone: a correction must be explicit and
+    # target one earlier compatible report (or cite its original source ID).
+    for index,claim in enumerate(claims):
+        if len(claim['measurements'])!=1:continue
+        metric=claim['measurements'][0]
+        prior=[]
+        for old in claims[:index]:
+            if old['supersededBy'] or old['status']!='REPORTED' or len(old['measurements'])!=1:continue
+            om=old['measurements'][0]
+            explicit_ref=bool(re.search(r'\b'+re.escape(old['sourceId'])+r'\b',claim['quote']))
+            same_chat=claim['chatId'] is not None and claim['chatId']==old['chatId']
+            if not (same_chat or explicit_ref) or om['metric']!=metric['metric'] or om['trial']!=metric['trial'] or not explicit_ref and om['anchors']!=metric['anchors']:continue
+            try:later=(claim['sourceId']==old['sourceId'] and claim['spanStart']>old['spanStart']) or float(claim['created'])>float(old['created'])
+            except (TypeError,ValueError):later=False
+            if later:prior.append(old)
+        correction=bool(re.search(r'\b(?:correction|correcting|corrected|rather than|instead of)\b',claim['quote'],re.I))
+        if correction and prior:
+            referenced=[old for old in prior if re.search(r'\b'+re.escape(old['sourceId'])+r'\b',claim['quote'])]
+            targets=referenced or prior
+            if len(targets)==1:
+                target=targets[0];target['supersededBy'].append(claim['id'])
+                relations.append({'kind':'EXPLICIT_REPORTED_CORRECTION','earlier':target['id'],'later':claim['id'],'scope':'User-reported measurement; not independently measured improvement.'})
+            else:relations.append({'kind':'UNRESOLVED_CORRECTION','later':claim['id'],'possibleEarlier':[old['id'] for old in targets]})
+        elif correction:relations.append({'kind':'UNRESOLVED_CORRECTION','later':claim['id'],'possibleEarlier':[]})
+        elif prior:
+            different=[old['id'] for old in prior if Decimal(old['measurements'][0]['secondsExact'])!=Decimal(metric['secondsExact'])]
+            if different:relations.append({'kind':'DIFFERING_REPORTS','earlier':different,'later':claim['id'],'scope':'May be different trials. Neither comparability nor correction is established.'})
+    selected_ids=[s['id'] for s in selected]
+    omitted_ids=list(dict.fromkeys([s['id'] for s in meaningful if s['id'] not in selected_ids]+omitted))
+    display_truncated=list(dict.fromkeys(c['sourceId'] for c in claims if c.get('quote') and len(c['quote'])>360))
+    return {'claims':claims,'relations':relations,'sourceIds':selected_ids,'omittedSourceIds':omitted_ids,
+            'truncatedSourceIds':list(dict.fromkeys(truncated)),'coverageComplete':not omitted_ids and not truncated,
+            'displayTruncatedSourceIds':display_truncated,'displayCoverageComplete':not omitted_ids and not truncated and not display_truncated,
+            'scope':'Retrieved original excerpts only; not complete conversation history.','semanticCertification':False}
+
+
+def history_claim_evidence_view(sources,reference='',ledger=None):
+    """Source-linked partial evidence, not unchecked generated synthesis."""
+    ledger=ledger if ledger is not None else history_claim_ledger(sources)
+    by_id={s['id']:s for s in sources if s.get('id')}
+    parts=['Retrieved claim-level evidence — a partial evidence view, not a verified account of every project change.']
+    parts.append('Showing '+str(len(ledger['sourceIds']))+' of '+str(len(by_id))+' retrieved sources. Speaker reports remain reports; confirmed operation metadata does not establish a completed software improvement.')
+    labels={'REQUESTED':'Requested; completion not established','ATTEMPTED':'Attempted; success not established',
+            'DENIED':'Denied change report','REPORTED':'Speaker-reported; not independently verified',
+            'CONFIRMED':'Application-recorded operation metadata','UNRESOLVED':'Unresolved evidence; not completion proof'}
+    for claim in ledger['claims']:
+        source=by_id[claim['sourceId']];url=str(source.get('url',''))
+        citation='['+claim['sourceId']+']'
+        if re.fullmatch(r'offlinegpt://chat/[\w-]+\?message=\d+',url):citation+='('+url+')'
+        parts.append('**'+claim['id']+' — '+labels[claim['status']]+'**\n\n'+citation+' — '+str(claim['date'])+' — '+claim['speaker'])
+        if claim['kind']=='operation_duration':
+            parts.append('Recorded operation duration: '+str(claim['durationSeconds'])+' seconds. No comparable optimization benchmark is implied.')
+        else:
+            quote=claim['quote'][:360].replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+            quote=re.sub(r'([\\\[\]()*_`!#|])',r'\\\1',quote)
+            parts.append('> '+quote+(' … [excerpt shortened]' if len(claim['quote'])>360 else ''))
+        if claim['supersededBy']:parts.append('Earlier report superseded by explicit reported correction: '+', '.join(claim['supersededBy'])+'. Original evidence retained.')
+    for relation in ledger['relations']:
+        if relation['kind']=='EXPLICIT_REPORTED_CORRECTION':parts.append('Reported correction: '+relation['later']+' corrects '+relation['earlier']+'. This is report precedence, not independent measurement.')
+        elif relation['kind']=='DIFFERING_REPORTS':parts.append('Unresolved comparison: '+', '.join(relation['earlier'])+' and '+relation['later']+'. '+relation['scope'])
+        else:parts.append('Unresolved correction target: '+relation['later']+'. '+('Possible earlier claims: '+', '.join(relation['possibleEarlier'])+'. ' if relation['possibleEarlier'] else 'No uniquely matched earlier report is available. ')+'No earlier report was silently overwritten.')
+    parts.append('Completed software changes or causal speedups unsupported by the supplied originals remain unresolved. Supported statements and operation records above remain available.')
+    if ledger['omittedSourceIds']:parts.append('Retrieved source IDs not fully displayed: '+', '.join(ledger['omittedSourceIds'])+'.')
+    if ledger['truncatedSourceIds']:parts.append('Source excerpts truncated by the bounded evidence view: '+', '.join(ledger['truncatedSourceIds'])+'.')
+    if ledger['displayTruncatedSourceIds']:parts.append('Shortened quote previews: '+', '.join(ledger['displayTruncatedSourceIds'])+'. Display coverage is partial; original source links remain available.')
+    if reference:parts.append('Diagnostic: '+reference)
+    return '\n\n'.join(parts)
 
 
 def history_evidence_fallback(sources,reference=''):

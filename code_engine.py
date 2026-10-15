@@ -59,6 +59,166 @@ def engineering_review_focus(prompt):
     return '\n'.join(focus)
 
 
+def verify_transaction_trace(events, required_groups):
+    """Verify all-or-none effect groups at each acknowledged commit boundary.
+
+    Restricted symbolic contract, NOT a SQL/Python evaluator. A caller supplies
+    one connection's ordered, successfully executed control operations and
+    explicit write/commit outcomes. Effects are unique opaque IDs, not balances.
+    No concurrency, triggers, external effects, compensation or durability proof.
+    Unrecognized input, unfinished transactions and ambiguous commits are UNKNOWN.
+    An empty failure list is never a certificate for an arbitrary program.
+    """
+    pending=[];committed=[];marks=[];active=False;explicit=False;violations=[]
+    seen=set();states=[]
+    def result(status, reason='', supported=True, possible=None):
+        return {'status':status,'supported':supported,'reason':reason,
+                'committedEffects':list(committed),'pendingEffects':list(pending),
+                'violations':list(violations),'boundaries':list(states),
+                'possibleCommittedEffects':possible or [],
+                'retryRequiresReconciliation':status=='UNKNOWN'}
+    def unknown(reason):return result('UNKNOWN',reason,False)
+    def valid_id(value):return isinstance(value,str) and bool(re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}',value))
+    if not isinstance(events,list) or not 1<=len(events)<=128:return unknown('Trace must contain 1–128 explicit events.')
+    if not isinstance(required_groups,list) or not 1<=len(required_groups)<=16:return unknown('Explicit required effect groups are missing or oversized.')
+    groups=[]
+    for group in required_groups:
+        if not isinstance(group,list) or not 2<=len(group)<=32 or not all(valid_id(v) for v in group) or len(set(group))!=len(group):return unknown('Invalid all-or-none effect group.')
+        groups.append(set(group))
+    def publish(index):
+        nonlocal pending,active,explicit,marks
+        committed.extend(pending);pending=[];active=False;explicit=False;marks=[]
+        state=set(committed)
+        broken=[sorted(g) for g in groups if state & g and not g<=state]
+        if broken:violations.append({'event':index,'incompleteGroups':broken})
+        states.append({'event':index,'committedEffects':list(committed),'incompleteGroups':broken})
+    for index,event in enumerate(events):
+        if not isinstance(event,dict):return unknown('Each event must be an object.')
+        op=event.get('op')
+        keys={'begin':{'op'},'write':{'op','effect','outcome'},'savepoint':{'op','name'},
+              'rollback_to':{'op','name'},'release':{'op','name','outcome'},
+              'rollback':{'op'},'commit':{'op','outcome'}}
+        if not isinstance(op,str) or op not in keys or set(event)-keys[op]:return unknown('Unsupported operation or extra semantics.')
+        if op=='begin':
+            if active:return unknown('Nested BEGIN is not a successful control operation.')
+            active=True;explicit=True
+        elif op=='savepoint':
+            if not valid_id(event.get('name')):return unknown('Invalid savepoint name.')
+            active=True;marks.append((event['name'].casefold(),list(pending)))
+        elif not active:return unknown('Explicit transaction/savepoint required before this operation.')
+        elif op=='write':
+            effect=event.get('effect');outcome=event.get('outcome')
+            if not valid_id(effect) or effect in seen:return unknown('Write effects must have unique IDs; retry/idempotency cannot be inferred.')
+            seen.add(effect)
+            if outcome=='applied':pending.append(effect)
+            elif outcome=='statement_aborted':pass
+            elif outcome=='transaction_rolled_back':pending=[];marks=[];active=False;explicit=False
+            else:return unknown('Write failure scope is not known.')
+        elif op in {'rollback_to','release'}:
+            if not valid_id(event.get('name')):return unknown('Invalid savepoint name.')
+            matches=[n for n,(name,_) in enumerate(marks) if name==event['name'].casefold()]
+            if not matches:return unknown('Successful operation references no live savepoint.')
+            mark=matches[-1]
+            if op=='rollback_to':pending=list(marks[mark][1]);marks=marks[:mark+1]
+            else:
+                if mark==0 and not explicit:
+                    if event.get('outcome')=='success':publish(index)
+                    elif event.get('outcome')=='unknown':
+                        return result('UNKNOWN','Outermost RELEASE has an unacknowledged commit outcome.',possible=[list(committed),committed+pending])
+                    else:return unknown('Outermost RELEASE needs an explicit commit outcome.')
+                else:
+                    if 'outcome' in event:return unknown('Inner RELEASE has no commit outcome in this contract.')
+                    marks=marks[:mark]
+        elif op=='rollback':pending=[];marks=[];active=False;explicit=False
+        elif op=='commit':
+            outcome=event.get('outcome')
+            if outcome=='success':publish(index)
+            elif outcome=='busy':pass  # SQLite BUSY leaves the transaction active.
+            elif outcome=='unknown':
+                return result('UNKNOWN','Commit acknowledgement is ambiguous; reconcile durable operation identity before retrying.',possible=[list(committed),committed+pending])
+            else:return unknown('Commit failure scope is unspecified.')
+    if violations:return result('PROVEN_INCONSISTENT','An acknowledged commit exposed an incomplete required group.')
+    if active:return result('UNKNOWN','Transaction still active; no final outcome established.')
+    return result('PROVEN_CONSISTENT','All acknowledged commit boundaries satisfy the declared all-or-none groups.')
+
+
+def savepoint_scope_failures(prompt, answer):
+    """Recognize one narrow contradictory transfer-policy explanation.
+
+    Numbered, explicit begin/write/savepoint/failed-write/rollback/commit steps
+    are analyzed as a hypothetical failure path. Unrecognized prose is not
+    certified. The invariant is scoped to a requested safe debit/credit pair;
+    unrelated partial-work policies and counterexamples are not rejected.
+    """
+    prompt=str(prompt);answer=str(answer)
+    if len(prompt)>24000 or len(answer)>60000:return []
+    if not (re.search(r'\bsqlite\b',prompt,re.I) and re.search(r'\bdebit\w*\b',prompt,re.I) and re.search(r'\bcredit\w*\b',prompt,re.I) and re.search(r'\bsafe\b|all.or.nothing|\batomic\w*\b',prompt,re.I)):return []
+    if re.search(r'\b(?:allow|permit|require)\w*\s+(?:a\s+)?partial\s+commit\b',prompt,re.I):return []
+    prose=re.sub(r'```.*?```','',answer,flags=re.S).replace('**','').replace('`','')
+    matches=list(re.finditer(r'(?m)^\s*(\d{1,2})[.)]\s+([^\n]+)',prose))
+    groups=[]
+    for match in matches:
+        if not groups or int(match[1])!=int(groups[-1][-1][1])+1:groups.append([])
+        groups[-1].append(match)
+    for group in groups:
+        if len(group)<5 or int(group[0][1])!=1:continue
+        end=group[-1].end();next_start=min([m.start() for m in matches if m.start()>end] or [len(prose)])
+        tail=prose[end:next_start].split('\n#',1)[0][:800]
+        # A later heading introduces a new policy and cannot endorse this one.
+        tail=re.split(r'\n\s*(?:Using|Safe.failure|Alternative|Counterexample)\b',tail,flags=re.I)[0]
+        claims=re.split(r'(?<=[.!?])\s+|\n+',tail)
+        positive=False
+        for clause in claims:
+            if re.match(r'\s*(?:unsafe|counterexample|incorrect|false)\s*(?:claim)?\s*:',clause,re.I):continue
+            claim=re.search(r'\b(?:ledger|operation|transfer|result|balance|invariant|transaction)\b.{0,40}\b(?P<property>consistent|atomic|all.or.nothing)\b',clause,re.I)
+            if not claim:continue
+            prefix=clause[max(0,claim.start('property')-45):claim.start('property')]
+            negated=re.search(r'\b(?:not|never|cannot|can.t|isn.t)\s+(?:(?:be|remain|remains|necessarily|still)\s+)*$',prefix,re.I)
+            if not negated:positive=True
+        if not positive:continue
+        events=[];writes=[];failed_attempt=False;recognized=True
+        for match in group:
+            step=match[2].strip()
+            if re.match(r'Begin\s+(?:the\s+)?transaction\b',step,re.I):events.append({'op':'begin'})
+            elif re.match(r'(?:Debit|Credit|Insert|Update|Delete)\b',step,re.I):
+                effect='step-'+match[1];writes.append(effect);events.append({'op':'write','effect':effect,'outcome':'applied'})
+            elif re.match(r'Attempt\s+(?:the\s+)?(?:credit|insert|update|delete)\b',step,re.I):
+                effect='step-'+match[1];writes.append(effect);failed_attempt=True;events.append({'op':'write','effect':effect,'outcome':'statement_aborted'})
+            elif re.match(r'SAVEPOINT\s+\w+',step,re.I):events.append({'op':'savepoint','name':re.match(r'SAVEPOINT\s+(\w+)',step,re.I)[1]})
+            elif failed_attempt and (m:=re.match(r'If\b[^,]{1,80}\bfails?\b,\s*ROLLBACK\s+TO\s+(?:SAVEPOINT\s+)?(\w+)',step,re.I)):
+                events.append({'op':'rollback_to','name':m[1]})
+            elif failed_attempt and re.match(r'If\b[^,]{1,80}\bfails?\b,\s*ROLLBACK\s+(?:the\s+)?(?:entire|whole)\s+transaction',step,re.I):events.append({'op':'rollback'})
+            elif re.match(r'Commit\s+(?:the\s+)?outer\s+transaction\b',step,re.I):events.append({'op':'commit','outcome':'success'})
+            else:recognized=False;break
+        if recognized and failed_attempt and len(writes)==2:
+            verdict=verify_transaction_trace(events,[writes])
+            if verdict['status']=='PROVEN_INCONSISTENT':
+                return ['The stated savepoint failure path commits only part of the requested safe debit/credit operation, yet calls it consistent. ROLLBACK TO retains writes before the savepoint. Put the mark before all coupled writes, roll back the whole transaction, or explicitly justify an allowed partial policy; do not call isolation of one failed statement proof of the business invariant.']
+    return []
+
+
+def ambiguous_commit_failures(prompt, answer):
+    """Reject explicit certainty/replay claims after a lost COMMIT acknowledgement.
+
+    Only an explicitly ambiguous outcome qualifies. Ordinary SQLite BUSY is
+    distinct and is not automatically treated as ambiguous. No omission check.
+    """
+    if not re.search(r'\b(?:sqlite|transaction)\b',str(prompt),re.I):return []
+    if not re.search(r'\bcommit\b.{0,65}\b(?:unknown|ambiguous|timeout|timed out|lost acknowledgement|acknowledgement.*lost)\b|\b(?:unknown|ambiguous)\b.{0,40}\bcommit\b',str(prompt),re.I):return []
+    prose=re.sub(r'```.*?```','',str(answer),flags=re.S).replace('**','')
+    for clause in re.split(r'\n+|(?<=[.!?])\s+',prose):
+        if re.match(r'\s*(?:counterexample|incorrect|false)\s*(?:claim)?\s*:',clause,re.I):continue
+        if re.match(r'\s*(?:if|only (?:if|after))\b.{0,100}\b(?:verified|confirmed|reconciled)\b.{0,100}\b(?:not committed|no commit|rollback|idempotent)\b',clause,re.I):continue
+        claim=re.search(r'\bcommit\b.{0,45}\b(?P<certainty>definitely|certainly|always)\b.{0,30}\b(?:failed|rolled back)\b|\b(?P<safety>safe(?:ly)?)\b.{0,30}\b(?:replay|retry)\b.{0,35}\b(?:whole|entire)\b.{0,20}\btransaction\b',clause,re.I)
+        if claim:
+            anchor=claim.start('certainty') if claim.group('certainty') else claim.start('safety')
+            prefix=clause[max(0,anchor-70):anchor]
+            denial=re.search(r'\b(?:not|never|cannot|can.t)\s+(?:(?:assume|say|claim|infer|conclude|that|the|a|commit|is|was|be|necessarily)\s+)*$',prefix,re.I)
+            if denial:continue
+            return ['An unacknowledged COMMIT does not prove rollback or safe replay of the entire transaction. Distinguish known SQLite BUSY (transaction still active) from an unknown outcome; reconcile durable operation identity and specify idempotency before retrying.']
+    return []
+
+
 def python_default_timing_failures(prompt,answer):
     """Check a language invariant against parsed function defaults, never exec.
 
@@ -223,7 +383,8 @@ def engineering_guarantee_failures(prompt, answer):
     Lack of a keyword is not proof of a defective design. Unrelated subtasks
     and ordinary explanations are not refused by this function.
     """
-    failures=python_default_timing_failures(prompt,answer)+python_generator_timing_failures(prompt,answer)
+    failures=(python_default_timing_failures(prompt,answer)+python_generator_timing_failures(prompt,answer)
+              +savepoint_scope_failures(prompt,answer)+ambiguous_commit_failures(prompt,answer))
     if not engineering_review_focus(prompt):return failures
     # Code literals and explicitly labelled counterexamples are not endorsed
     # prose guarantees. This checker does not certify generated implementations.

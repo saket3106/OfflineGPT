@@ -6,20 +6,20 @@
       "repository": "7d095a988c6e6386e3c457ee9805deb2f70bf7b05a07a91512bbc6f5d51e63d6"
     },
     "app.py": {
-      "source": "d0c136d5c3cb6f42f0037851b57081655c36c9aa6b09fcdf3f4a9493f101d6a5",
-      "repository": "d0c136d5c3cb6f42f0037851b57081655c36c9aa6b09fcdf3f4a9493f101d6a5"
+      "source": "02aaebb94bc88c568ce678bce3dc6a0cd2cfbc3807e9dd6d24dff5b5247a5ff2",
+      "repository": "02aaebb94bc88c568ce678bce3dc6a0cd2cfbc3807e9dd6d24dff5b5247a5ff2"
     },
     "assistant_system_prompt.md": {
       "source": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19",
       "repository": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19"
     },
     "code_engine.py": {
-      "source": "417c2da9a76b9089d9750f7c13049ea0b0819f400eb7e7691c88284a6f25cd14",
-      "repository": "417c2da9a76b9089d9750f7c13049ea0b0819f400eb7e7691c88284a6f25cd14"
+      "source": "133cce202b5f9c3ac026a2c924f7fa9cb21633a637da8bd19ff5b68c07d1b0a1",
+      "repository": "133cce202b5f9c3ac026a2c924f7fa9cb21633a637da8bd19ff5b68c07d1b0a1"
     },
     "conversation_memory.py": {
-      "source": "afd1df746bcebf17fe038021fc5a2d14e53360d4e2f4edca841de56a769e5ed7",
-      "repository": "afd1df746bcebf17fe038021fc5a2d14e53360d4e2f4edca841de56a769e5ed7"
+      "source": "87cb4793ba052bcafda29dd084027974108b9e011228597a7010213a34525064",
+      "repository": "87cb4793ba052bcafda29dd084027974108b9e011228597a7010213a34525064"
     },
     "document_tools.py": {
       "source": "2aa23fa97737c6b64135be0683b43f328a4cf60dffdde46dce4b88c143f46a26",
@@ -294,8 +294,8 @@
       "repository": "95db64c0e57d8c34d3feaec63da25d38c1b7db53d5ec44805d2614d068151fa4"
     },
     "validators.py": {
-      "source": "fea046a73e835fbc341007f06ae071710f04ae578c85c97ef3687e226c402842",
-      "repository": "fea046a73e835fbc341007f06ae071710f04ae578c85c97ef3687e226c402842"
+      "source": "135d0877ec511a5babcb36f6fa9dedbd7672e136e23ec6aa333c527bf6e581b5",
+      "repository": "135d0877ec511a5babcb36f6fa9dedbd7672e136e23ec6aa333c527bf6e581b5"
     },
     "voice_runtime.py": {
       "source": "88f3533b40cbf055243a7696cfa112cd2e0ce38780db8c9cbc98118d439a458e",
@@ -304,6 +304,30 @@
     "workspace_services.py": {
       "source": "f8595df5e1e31b5c0dcd1cccc7fc1f94412a370588460c59fe5b24e572f2ff1e",
       "repository": "f8595df5e1e31b5c0dcd1cccc7fc1f94412a370588460c59fe5b24e572f2ff1e"
+    },
+    "tests/semantic_acceptance_cases.json": {
+      "source": "53c7dcb4d7ca818d9c941554d1943e0b9ec21dec484bd0b56c206f86cd7630dc",
+      "repository": "53c7dcb4d7ca818d9c941554d1943e0b9ec21dec484bd0b56c206f86cd7630dc"
+    },
+    "tests/semantic_acceptance.py": {
+      "source": "c9001ff31440aea82684c18396e9d520ec0cb478fb09b7f6bc67f623a732369b",
+      "repository": "c9001ff31440aea82684c18396e9d520ec0cb478fb09b7f6bc67f623a732369b"
+    },
+    "tests/test_history_change_polarity.py": {
+      "source": "1a5599abc94663c4e37b492a1aa5d90f65b51995ce5ca69acf10b4e60a3b4502",
+      "repository": "1a5599abc94663c4e37b492a1aa5d90f65b51995ce5ca69acf10b4e60a3b4502"
+    },
+    "tests/test_history_claim_ledger.py": {
+      "source": "3a3fb9e63c43873fa17fc3b107ac7f0fad0b64ebb5f8534f508103106eb4374d",
+      "repository": "3a3fb9e63c43873fa17fc3b107ac7f0fad0b64ebb5f8534f508103106eb4374d"
+    },
+    "tests/test_semantic_acceptance.py": {
+      "source": "fff1818bcc4cd27cdb2dcdeeba7e2c6abdfd9fc1ebe47279e1f1a3256f6ee21e",
+      "repository": "fff1818bcc4cd27cdb2dcdeeba7e2c6abdfd9fc1ebe47279e1f1a3256f6ee21e"
+    },
+    "tests/test_transaction_semantics.py": {
+      "source": "d1a77ff35d2b87c73a336e910f1a905c230972e4ae44ec923917ad16587f5f92",
+      "repository": "d1a77ff35d2b87c73a336e910f1a905c230972e4ae44ec923917ad16587f5f92"
     }
   },
   "protected": {

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "policy": "Independently authored evaluation inputs, not application answers. Never execute generated SQL/Python. Record actual candidate/model/input/answer identities, per-criterion review, citations, context fitting, calls, first-visible/total timing and monitored resources. Internal validation success cannot substitute for independent semantic acceptance.",
+  "cases": [
+    {
+      "id": "generator-interleaving-v1",
+      "input": "Consider Python: def unique(items, seen=set()):\n    for value in items:\n        if value not in seen:\n            seen.add(value)\n            yield value\nOn a fresh function definition, create a=unique([3,4]) and b=unique([4,5]). Advance b once, exhaust a, then exhaust b. Explain the yielded values and shared state at each boundary. Do not run the program. Keep the corrected API compatible with existing positional seen arguments.",
+      "criteria": [
+        {"id":"definition-time","invariant":"The shared default is allocated when the definition executes; creating a/b does not run their bodies."},
+        {"id":"interleaving","invariant":"First advancement of b yields 4; a then yields only 3; remaining b yields 5. Do not assume a was exhausted first."},
+        {"id":"api-compatibility","invariant":"Correction preserves laziness and a caller-supplied positional seen argument."},
+        {"id":"execution-provenance","invariant":"No claim of executing code without runtime telemetry."}
+      ]
+    },
+    {
+      "id": "reservation-savepoint-v1",
+      "input": "A SQLite inventory reservation requires both a stock decrement and a reservation row, or neither. An outer transaction performs the decrement, creates SAVEPOINT row_attempt, tries the reservation INSERT, receives an ABORT constraint failure, ROLLBACK TO row_attempt, then successfully COMMITs. Is the invariant preserved? Explain a corrected failure policy and whether RELEASE of an inner savepoint independently commits. Do not execute SQL.",
+      "criteria": [
+        {"id":"scope","invariant":"The decrement survives rollback to the later mark; successful outer commit violates the declared pair invariant."},
+        {"id":"repair","invariant":"Whole rollback or a mark before both writes preserves the invariant, absent a separately justified policy."},
+        {"id":"release","invariant":"An inner RELEASE merges scope; outer rollback can still undo its effects."}
+      ]
+    },
+    {
+      "id": "commit-ambiguity-v1",
+      "input": "Compare two SQLite transaction outcomes: (A) COMMIT returns SQLITE_BUSY on the still-open connection; (B) the client loses the COMMIT acknowledgement and cannot observe whether it became durable. Give a safe retry/reconciliation policy for each. Is replaying every write automatically safe? Do not execute code.",
+      "criteria": [
+        {"id":"busy","invariant":"Known SQLITE_BUSY leaves the transaction active; retry COMMIT rather than blindly replaying writes."},
+        {"id":"unknown","invariant":"Lost acknowledgement remains unknown; neither rollback nor success can be asserted from silence."},
+        {"id":"idempotency","invariant":"Reconcile a durable operation identity/uniqueness policy before replay; no unqualified exactly-once execution guarantee."}
+      ]
+    },
+    {
+      "id": "history-correction-v1",
+      "input": "Use only these records. [H1, 2026-08-02, USER_STATEMENT] I reported image sampling took 90 seconds. [H2, 2026-08-03, USER_STATEMENT] Correction: the 90 seconds included export; sampling itself was 65 seconds. [H3, 2026-08-04, USER_REQUEST] Please make generation twice as fast. State the current reported sampling time, the earlier report, and what these sources establish about an implemented speed improvement. Cite each supported claim.",
+      "criteria": [
+        {"id":"correction","invariant":"65 seconds is the corrected user-reported sampling value; 90 seconds remains earlier, broader timing evidence."},
+        {"id":"measurement-kind","invariant":"User reports are not relabeled independently measured application telemetry."},
+        {"id":"request-not-proof","invariant":"A request for twice the speed proves no implementation or achieved improvement."},
+        {"id":"citations","invariant":"No invented source IDs; missing improvement evidence does not suppress the supported timings."}
+      ]
+    },
+    {
+      "id": "history-conflict-v1",
+      "input": "Use only these records. [R1, 2026-07-10, USER_STATEMENT] The Aurora run took 42 seconds. [R2, 2026-07-10, USER_STATEMENT] The Aurora run took 53 seconds. Neither record identifies whether this was the same trial or a correction. Explain what is known, what conflicts, and what cannot be inferred. Cite the original records without inventing dates or a speedup.",
+      "criteria": [
+        {"id":"conflict","invariant":"Report both values with provenance; do not silently choose one as a chronological correction."},
+        {"id":"comparability","invariant":"No optimization or comparative percentage is presented as established for these unidentified trials."},
+        {"id":"provenance","invariant":"Only R1 and R2 citations/dates are used; unsupported details remain qualified."}
+      ]
+    },
+    {
+      "id": "vision-table-association-v1",
+      "input": "Transcribe the supplied technical table into structured rows. Preserve identifiers, leading zeroes, exact numeric cells, row/column association and repeated identifiers. Mark unreadable cells unknown; do not invent values or call this exact transcription before independent comparison with the fixture ground truth.",
+      "requiresFixture":"A newly rendered local technical-table fixture and independently retained ground truth; do not reuse a known failed screenshot as an unseen test.",
+      "criteria": [
+        {"id":"characters","invariant":"Character/numeric accuracy independently compared against the original fixture."},
+        {"id":"structure","invariant":"Every row/cell mapped to the correct heading; repeated IDs and leading zeroes retained."},
+        {"id":"uncertainty","invariant":"Unreadable values explicitly unknown; output not falsely certified exact."}
+      ]
+    },
+    {
+      "id": "cancellation-recovery-v1",
+      "input": "In an isolated candidate profile, submit a bounded ordinary explanation, cancel while active, then submit a short unrelated explanation. Observe worker ownership, cancellation, final publication and resource release without altering production data.",
+      "requiresFixture":"Monitored actual candidate UI/controller; no synthetic cancellation record may count as model acceptance.",
+      "criteria": [
+        {"id":"cancel-ownership","invariant":"Only the owned request is cancelled; stale output does not replace the next request."},
+        {"id":"recovery","invariant":"The subsequent actual request answers correctly and terminates normally."},
+        {"id":"release","invariant":"Owned workers/resources shut down within observed bounds; no production/profile contamination."}
+      ]
+    }
+  ]
+}

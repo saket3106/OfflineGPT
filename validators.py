@@ -194,7 +194,7 @@ _DIAGNOSTIC_FAILURE = re.compile(
 
 
 def parse_numbered_response_sections(response: str, expected_tasks: list[int | str]) -> dict[int | str, dict[str, str]]:
-    """Parse numbered response sections without treating fenced code as headings."""
+    """Parse task sections, retaining nested lists and excluding fenced code."""
     expected = {normalize_task_id(task_id) for task_id in expected_tasks}
     if not expected:
         return {}
@@ -219,14 +219,13 @@ def parse_numbered_response_sections(response: str, expected_tasks: list[int | s
             match = _TASK_HEADING.match(body)
             if match:
                 task_id = normalize_task_id(match.group(1))
-                if task_id in expected and task_id not in sections:
+                if task_id in expected:
                     first_body = (match.group(2) or "").strip()
                     if first_body.endswith("**") and not first_body.startswith("**"):
                         first_body = first_body[:-2].strip()
                     elif first_body.endswith("__") and not first_body.startswith("__"):
                         first_body = first_body[:-2].strip()
                     starts.append((offset, task_id, line, first_body))
-                    sections[task_id] = {}  # Reserve the ID; duplicate list items are not section boundaries.
                 # A common format puts an opening code fence immediately after
                 # the numbered heading, e.g. "2. ```python". Track that fence so
                 # numeric code lines cannot be mistaken for sibling task headings.
@@ -236,6 +235,22 @@ def parse_numbered_response_sections(response: str, expected_tasks: list[int | s
                     marker = inline_fence.group(1)
                     fence_char, fence_size = marker[0], len(marker)
         offset += len(line)
+
+    # First determine the root indentation from all numeric task candidates.
+    # Reserving IDs during the scan lets an indented example numbered "1."
+    # steal task 1 before its real heading appears, losing sibling content on
+    # merge. Explicit dotted leaf IDs remain valid at their nested indentation.
+    def indentation(heading):return len(heading[:len(heading)-len(heading.lstrip(' \t'))].expandtabs(8))
+    numeric_indents=[indentation(heading) for _,tid,heading,_ in starts if isinstance(tid,int)]
+    root_indent=min(numeric_indents) if numeric_indents else 0
+    filtered=[]
+    for entry in starts:
+        _,tid,heading,_=entry
+        indent=indentation(heading)
+        if isinstance(tid,int) and indent>root_indent:continue
+        if tid in sections:continue
+        filtered.append(entry);sections[tid]={}
+    starts=filtered
 
     for index, (start, task_id, heading, first_line_body) in enumerate(starts):
         end = starts[index + 1][0] if index + 1 < len(starts) else len(text)
