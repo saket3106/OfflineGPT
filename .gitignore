@@ -99,6 +99,7 @@ Thumbs.db
 .idea/
 .vscode/
 /.source-sync.lock
+/.offlinegpt-autosync-mutex
 .offlinegpt-sync-*
 
 # Curated icons and synthetic documentation screenshots are intentional assets.

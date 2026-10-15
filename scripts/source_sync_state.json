@@ -331,7 +331,7 @@
     }
   },
   "protected": {
-    "AGENTS.md": "ccea2a9a82589c121e021bf6313daad1aebce8a0eb3de1130fcd4f53e73a2cc9",
+    "AGENTS.md": "f4c713417dbf89634dd73a5e3c69bfaf34548486f5934f810a4c2ee9510761b2",
     "README.md": "69c25b5e8afa34989b76c76a5689c5c1b10336aa3aa96d4aee93504d2ab017cf",
     "requirements.txt": "97111a1d7b51bbea06e36061c767f491eba9c07658ed61463c69525829b76d06",
     "tests/qt_frontend_check.py": "7ef9d59defba8835d32eecf4f74a3449693c856fd1ae75d6b0b943fa849c86df",

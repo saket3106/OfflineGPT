@@ -5,6 +5,7 @@
     "assistant_system_prompt.md",
     "code_engine.py",
     "conversation_memory.py",
+    "docs/DEVELOPMENT_PROTOCOL.md",
     "document_tools.py",
     "evals/datasets/core.jsonl",
     "evals/runner.py",

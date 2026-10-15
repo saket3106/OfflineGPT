@@ -283,7 +283,9 @@ def atomic_write(path, data):
 
 def validate_external(path, repo, source):
     resolved=path.resolve()
-    if resolved.is_relative_to(repo) or resolved.is_relative_to(source):raise SyncError('Reports/backups must stay outside both roots')
+    # All operands need the same canonical namespace (relative paths and
+    # Windows short/long temp-directory aliases otherwise evade containment).
+    if resolved.is_relative_to(repo.resolve()) or resolved.is_relative_to(source.resolve()):raise SyncError('Reports/backups must stay outside both roots')
     if path.exists() and linked(path):raise SyncError('External artifact path is a link')
     return resolved
 

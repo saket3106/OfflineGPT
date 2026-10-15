@@ -193,6 +193,15 @@ class SourceSyncTests(unittest.TestCase):
         for p in (self.repo/'reports',self.source/'reports'):
             with self.assertRaises(sync.SyncError):sync.validate_external(p,self.repo,self.source)
 
+    def test_external_boundaries_canonicalize_relative_roots(self):
+        # Independent reproduction of mismatched canonical namespaces; does
+        # not require Windows 8.3 names to be enabled on the developer disk.
+        relative_repo=Path(os.path.relpath(self.repo,Path.cwd()))
+        relative_source=Path(os.path.relpath(self.source,Path.cwd()))
+        for target in (self.repo/'reports',self.source/'reports'):
+            with self.assertRaises(sync.SyncError):sync.validate_external(target,relative_repo,relative_source)
+        self.assertEqual(sync.validate_external(self.reports,relative_repo,relative_source),self.reports.resolve())
+
     def test_precommit_audits_index_even_when_working_file_clean(self):
         (self.repo/'app.py').write_text('TOKEN="'+'ghp_'+'a'*36+'"\n')
         subprocess.run([self.git,'-C',str(self.repo),'add','app.py'],check=True)

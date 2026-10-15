@@ -10,3 +10,15 @@
 - Do not hard-code benchmark answers. After relevant changes, run `python -m unittest discover -s tests -q` from this source directory.
 - Build only into an isolated output. Never install or overwrite a user application/data without separate authorization.
 - This source export contains no model weights, private fixtures, runtime binaries or production data. Keep these excluded.
+
+## Completed development batches
+
+Use the single configured publication pipeline in `docs/AUTO_SYNC.md`. Stable
+files alone do not prove a task is complete. Finish a coherent unit, inspect its
+exact publication diff and focused evidence, then prepare and accept the exact
+snapshot through `scripts/auto_sync.py`. The same protocol applies to Codex and
+Antigravity; no unsupported agent hook is assumed. Never accept an in-progress,
+conflicting, secret-bearing or unlicensed source batch. Keep private paths,
+receipts and task state outside this repository. Do not replace sanitized
+repository-owned files with private development variants. Production upgrades,
+model replacement and binary publication retain separate acceptance gates.
