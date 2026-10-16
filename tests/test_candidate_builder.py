@@ -220,4 +220,52 @@ class AcceptanceTests(unittest.TestCase):
     @unittest.skipUnless(os.name=='nt','Actual Windows event monitor')
     def test_event_monitor_ignores_inherited_powershell_module_injection(self):
         with patch.dict(os.environ,{'PSModulePath':str(Path(b.__file__).parent/'nonexistent-modules')}):b.Resources().incidents()
+class HistoricalEvidenceTests(unittest.TestCase):
+    """Hash-sealed history must not bypass genuine-build receipt validation."""
+    def setUp(self):
+        import tempfile
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.builder=object.__new__(b.Builder);self.builder.root=Path(self.temp.name)
+        self.builder.profileHash='a'*64;self.builder.fixture=False;self.builder.adapters={'old':'adapter'}
+        self.key='b'*64;self.path=self.builder.root/'jobs'/self.key;self.path.mkdir(parents=True)
+        self.value={'buildKey':self.key,'profileSha256':'c'*64,'status':'COMPLETE','attempts':1,'created':1,
+          'sourceCommit':'d'*40,'graph':{'sourceCommit':'d'*40,'files':{'app.py':'e'*64}},
+          'adapters':{'old':'adapter'},'acceptedSources':[{'commit':'d'*40}],
+          'actualBuildRun':True,'fixtureOnly':False,'pointerAfter':{'buildKey':self.key},
+          'phaseReceipts':{n:{'returnCode':0,'remainingOwnedProcesses':0} for n in ('FRONTEND','PACKAGING','VERIFYING','SMOKE')}}
+    def seal(self):
+        b.save(self.path/'job.json',self.value)
+        self.builder.cfg={'historicalJobs':{self.key:{'sha256':b.inputs.sha(self.path/'job.json'),
+          'profileSha256':self.value['profileSha256'],'status':self.value['status']}}}
+    def test_valid_historical_completion_retains_original_identity(self):
+        self.seal();raw=(self.path/'job.json').read_bytes();self.assertEqual(self.builder.job(self.key)[1],self.value)
+        self.assertEqual((self.path/'job.json').read_bytes(),raw)
+    def test_sealed_fixture_completion_is_not_a_genuine_build(self):
+        self.value.update(actualBuildRun=False,fixtureOnly=True);self.seal()
+        with self.assertRaises(b.Error):self.builder.job(self.key)
+    def test_sealed_incomplete_phases_are_not_a_genuine_build(self):
+        self.value['phaseReceipts'].pop('SMOKE');self.seal()
+        with self.assertRaises(b.Error):self.builder.job(self.key)
+    def test_phase_fixture_label_is_rejected_for_current_and_historical_jobs(self):
+        for historical in (True,False):
+            with self.subTest(historical=historical):
+                self.value['profileSha256']='c'*64 if historical else self.builder.profileHash
+                self.value['phaseReceipts']['SMOKE']['fixtureOnly']=True;self.seal()
+                with self.assertRaises(b.Error):self.builder.job(self.key)
+    def test_failed_or_malformed_historical_phase_never_passes(self):
+        for phase in ({'returnCode':1,'remainingOwnedProcesses':0},{'returnCode':0,'remainingOwnedProcesses':1},
+                      {'returnCode':False,'remainingOwnedProcesses':0},None):
+            with self.subTest(phase=phase):
+                self.value['phaseReceipts']['SMOKE']=phase;self.seal()
+                with self.assertRaises(b.Error):self.builder.job(self.key)
+    def test_mismatched_historical_pointer_is_rejected(self):
+        self.value['pointerAfter']['buildKey']='f'*64;self.seal()
+        with self.assertRaises(b.Error):self.builder.job(self.key)
+    def test_disposable_fixture_history_remains_explicitly_allowed(self):
+        self.builder.fixture=True;self.value.update(actualBuildRun=False,fixtureOnly=True);self.seal()
+        self.assertTrue(self.builder.job(self.key)[1]['fixtureOnly'])
+    def test_historical_hash_guard_still_detects_tampering(self):
+        self.seal();self.value['attempts']=2;b.save(self.path/'job.json',self.value)
+        with self.assertRaises(b.Error):self.builder.job(self.key)
+
 if __name__=='__main__':unittest.main()

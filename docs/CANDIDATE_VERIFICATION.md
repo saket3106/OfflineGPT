@@ -286,3 +286,16 @@ profile, old rollback, all pending required source/discovery lineage, genuine
 staged acceptance and scheduled activation. Do not invoke staging from a live
 working-tree controller, edit frozen profiles, or manually force the candidate
 pointer. Native provisioning and production deployment remain separate gates.
+
+### Historical completion evidence
+
+A historical journal hash protects its recorded bytes; it does not certify a
+genuine build. Production-mode reads validate completed historical jobs against
+the same completion-receipt requirements as current-profile jobs: an actual
+build, no fixture label, a matching artifact job identity, and all four successful
+phases with zero remaining owned processes. Fixture phase labels, malformed
+receipts and Boolean values masquerading as numeric exit/process counts fail
+closed. Disposable test controllers retain their explicit fixture mode.
+
+This check neither changes old journals nor promotes an artifact. Payload/source
+verification and packaged smoke acceptance remain separate required checks.

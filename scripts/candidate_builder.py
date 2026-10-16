@@ -20,6 +20,19 @@ ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','
 TERMINAL={'COMPLETE','ASSOCIATED','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUIRED'}
 def save(path,value):auto.sync.atomic_write(path,json.dumps(value,sort_keys=True,indent=2).encode())
 def digest_file(path):return inputs.sha(path)
+
+def genuine_completion(job,key,*,fixture=False):
+    """A historical hash seals bytes; it does not establish build acceptance."""
+    if job.get('status')!='COMPLETE' or fixture:return
+    phases=job.get('phaseReceipts')
+    if (job.get('actualBuildRun') is not True or job.get('fixtureOnly') is True
+        or not isinstance(job.get('pointerAfter'),dict) or job['pointerAfter'].get('buildKey')!=key
+        or not isinstance(phases,dict) or set(phases)!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'}
+        or any(not isinstance(row,dict) or row.get('fixtureOnly') is True
+               or type(row.get('returnCode')) is not int or row['returnCode']!=0
+               or type(row.get('remainingOwnedProcesses')) is not int or row['remainingOwnedProcesses']!=0
+               for row in phases.values())):
+        raise Error('Job marked complete without genuine build evidence')
 def powershell():return str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
 def powershell_environment():return {**os.environ,'PSModulePath':str(Path(powershell()).parent/'Modules')}
 SMOKE_CHECKS={'devtools_connected','real_webchannel_bridge','composer_visible','chat_store_bridge','synthetic_sqlite_bridge_write','synthetic_sqlite_bridge_read','no_observed_native_model_child','normal_exit','isolated_database_integrity','no_messages_in_fresh_profile','bridge_database_chat_ids_match'}
@@ -117,11 +130,11 @@ class Builder:
         if value['profileSha256']!=self.profileHash:
             history=self.cfg.get('historicalJobs',{}).get(key)
             if not history or history['sha256']!=inputs.sha(journal) or value['profileSha256']!=history['profileSha256'] or value['status']!=history['status']:raise Error('Build job/config identity changed')
+            genuine_completion(value,key,fixture=self.fixture)
             return path,value
         if value['status'] not in ACTIVE|TERMINAL|{'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'} or type(value['attempts']) is not int or not 0<=value['attempts']<=2 or type(value['created']) not in (int,float) or not math.isfinite(value['created']) or value['created']<=0:raise Error('Invalid job lifecycle fields')
         if not re.fullmatch('[a-f0-9]{40}',value['sourceCommit']) or not isinstance(value['graph'],dict) or value['graph'].get('sourceCommit')!=value['sourceCommit'] or not isinstance(value['graph'].get('files'),dict) or not value['graph']['files'] or value['adapters']!=self.adapters or not isinstance(value['acceptedSources'],list) or not value['acceptedSources']:raise Error('Incomplete immutable job identity')
-        if value['status']=='COMPLETE' and not self.fixture:
-            if value.get('actualBuildRun') is not True or value.get('fixtureOnly') is True or not isinstance(value.get('pointerAfter'),dict) or value['pointerAfter'].get('buildKey')!=key or set(value.get('phaseReceipts',{}))!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'} or any(row.get('returnCode')!=0 or row.get('remainingOwnedProcesses')!=0 for row in value['phaseReceipts'].values()):raise Error('Job marked complete without genuine build evidence')
+        genuine_completion(value,key,fixture=self.fixture)
         return path,value
     def anomaly(self,path,error):
         identity={'name':path.name,'reason':str(error)}
