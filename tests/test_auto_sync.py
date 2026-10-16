@@ -168,4 +168,17 @@ class AutoSyncTests(unittest.TestCase):
         self.accept();self.g('config','offlinegpt.synthetic','changed')
         self.assertEqual(self.manager.once()['status'],'BLOCKED');self.assertEqual((self.repo/'app.py').read_text(),'VALUE=1\n')
 
+    def test_private_repository_policy_is_fail_closed(self):
+        self.manager.local_fixture=False;self.manager.cfg['remoteUrl']='https://github.com/example/fixture.git'
+        good={'full_name':'example/fixture','private':True,'archived':False,'permissions':{'push':True}}
+        with patch.object(self.manager,'github_api',return_value=good):self.assertTrue(self.manager.remote_policy()['privateVerified'])
+        for change in ({'private':False},{'private':None},{'archived':True},{'full_name':'other/repository'},{'permissions':{'push':False}}):
+            with patch.object(self.manager,'github_api',return_value={**good,**change}),self.assertRaises(auto.Error):self.manager.remote_policy()
+
+    def test_repository_policy_failure_precedes_copy_and_commit(self):
+        self.accept()
+        with patch.object(self.manager,'remote_policy',side_effect=auto.Error('Synthetic repository no longer private')):result=self.manager.once()
+        self.assertEqual(result['status'],'BLOCKED');self.assertEqual((self.repo/'app.py').read_text(),'VALUE=1\n')
+        self.assertEqual(self.g('rev-list','--count','HEAD').strip(),b'1')
+
 if __name__=='__main__':unittest.main()

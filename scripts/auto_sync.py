@@ -186,8 +186,7 @@ class Manager:
         parts=raw.split()
         if len(parts)!=2 or not re.fullmatch('[0-9a-f]{40,64}',parts[0]) or parts[1]!='refs/heads/'+self.cfg['branch']:raise Error('Unexpected remote reference response')
         return parts[0]
-    def ci(self,commit):
-        if self.local_fixture:return {'status':'completed','conclusion':'success','fixtureOnly':True}
+    def github_api(self,suffix):
         # Credentials are obtained from the existing Git credential helper,
         # held only in memory, and never written to receipts or error messages.
         credential=self.git('credential','fill',input=('url='+self.cfg['remoteUrl']+'\n\n').encode())
@@ -195,10 +194,20 @@ class Manager:
         token=values.get('password')
         if not token:raise NetworkError('CI authentication unavailable')
         slug=self.cfg['remoteUrl'].removeprefix('https://github.com/').removesuffix('.git')
-        request=urllib.request.Request('https://api.github.com/repos/'+slug+'/actions/runs?head_sha='+commit+'&per_page=100',headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','User-Agent':'OfflineGPT-AutoSync'})
+        request=urllib.request.Request('https://api.github.com/repos/'+slug+suffix,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','User-Agent':'OfflineGPT-AutoSync'})
         try:
-            with urllib.request.urlopen(request,timeout=20) as response:payload=json.load(response)
-        except Exception:raise NetworkError('CI query unavailable; publication remains unaccepted') from None
+            with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
+        except Exception:raise NetworkError('GitHub policy/CI query unavailable; publication remains unaccepted') from None
+    def remote_policy(self):
+        if self.local_fixture:return {'fixtureOnly':True}
+        repository=self.github_api('')
+        slug=self.cfg['remoteUrl'].removeprefix('https://github.com/').removesuffix('.git')
+        if repository.get('full_name','').casefold()!=slug.casefold() or repository.get('private') is not True or repository.get('archived') is not False or repository.get('permissions',{}).get('push') is not True:
+            raise Error('Private writable repository policy is not established; publication blocked')
+        return {'privateVerified':True,'repository':slug,'verified':time.time()}
+    def ci(self,commit):
+        if self.local_fixture:return {'status':'completed','conclusion':'success','fixtureOnly':True}
+        payload=self.github_api('/actions/runs?head_sha='+commit+'&per_page=100')
         runs=[r for r in payload.get('workflow_runs',[]) if r.get('head_sha')==commit and r.get('head_branch')==self.cfg['branch'] and r.get('path')=='.github/workflows/source-safety.yml' and r.get('event')=='push']
         if not runs:return {'status':'pending','reason':'No matching push workflow observed'}
         run=max(runs,key=lambda r:r['id']);return {k:run.get(k) for k in ('id','status','conclusion','html_url','head_sha')}
@@ -209,6 +218,7 @@ class Manager:
         if batch['status'] in {'APPLYING','STAGING','COMMITTING'}:
             # Never guess success from absent files or a disappeared lock.
             return self.record(path,'RECOVERY_REQUIRED',reason='Interrupted publication phase; retain foundation journal/index and inspect exact Git tree before recovery')
+        remote_policy=self.remote_policy()
         if batch['status']=='ACCEPTED':
             if batch['sourceFiles']!=self.source_identity() or batch['repositoryFiles']!=sync.tree_hashes(self.repo,self.cfg['git']) or self.head()!=batch['parent']:return self.record(path,'STALE',reason='Accepted snapshot no longer matches live inputs')
             if batch['configSha256']!=sync.digest(sync.canonical(self.cfg)):raise Error('Accepted configuration changed')
@@ -252,7 +262,7 @@ class Manager:
             if remote!=batch.get('remoteBefore'):return self.record(path,'BLOCKED',reason='Concurrent remote update; never force-pushing')
             self.git('push','origin',commit+':refs/heads/'+self.cfg['branch'])
             if self.remote_head()!=commit:raise Error('Remote did not confirm exact commit')
-        self.record(path,'CI_PENDING',remoteCommit=commit,remoteVerified=time.time())
+        self.record(path,'CI_PENDING',remoteCommit=commit,remoteVerified=time.time(),remotePolicy=remote_policy)
         ci=self.ci(commit)
         if ci['status']!='completed':return self.record(path,'CI_PENDING',ci=ci)
         if ci.get('conclusion')!='success':return self.record(path,'CI_FAILED',ci=ci,reason='Matching remote source-safety workflow did not pass')

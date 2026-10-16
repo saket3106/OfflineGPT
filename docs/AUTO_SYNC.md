@@ -88,6 +88,9 @@ Private test logs may contain diagnostic fixture content and must not be synced.
 - Remote identity and concurrent changes are checked; ordinary non-force push
   is used. Lost push acknowledgements are reconciled against the exact remote
   commit, without creating duplicate commits.
+- The actual GitHub repository must remain private, unarchived and writable by
+  the configured authentication. Unknown or changed policy blocks publication
+  before copying or committing; the manager never changes visibility itself.
 - Network failures retry with backoff, at most eight times. Conflicts, integrity
   failures and ambiguous local mutations block rather than retrying blindly.
 - Interrupted APPLYING/STAGING/COMMITTING phases require retained-journal and Git
