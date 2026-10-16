@@ -53,6 +53,30 @@ as acceptance. A shell pass is not a native inference or production-release pass
 
 ## Remaining automatic-build work
 
+`scripts/build_environment.py` captures a private fingerprint of the existing
+isolated Python venv, its matching base stdlib/runtime, cached frontend
+dependencies and Python/Node executables. It installs nothing. It requires
+global site packages to be disabled, excludes unrelated base-global packages,
+rejects escaping links and model weights, detects changed files/topology and
+uses at most four hashing workers, 64 queued files, 80,000 files, 4 GiB and
+90 seconds. Transient caches/bytecode are explicitly excluded.
+
+```powershell
+python -I scripts/build_environment.py capture --python-env EXISTING_VENV `
+  --python-base MATCHING_BASE --frontend-deps EXISTING_SOURCE_NODE_MODULES `
+  --python APPROVED_PYTHON --node APPROVED_NODE --source ACTIVE_SOURCE `
+  --repository REPOSITORY --output NEW_PRIVATE_ENVIRONMENT_RECEIPT
+python -I scripts/build_environment.py verify --receipt PRIVATE_RECEIPT `
+  --sha256 REVIEWED_RECEIPT_SHA
+```
+
+This records observed inputs; it is not a signed lock or proof of the complete
+Python import graph. In particular, `.pth` behavior, ignored bytecode/cache use,
+private dependency materialization and frontend build derivation still require
+review in the execution adapter. The builder must not execute excluded caches
+or silently accept changed environments. Keep receipt paths/hashes private and
+never publish the machine-specific receipt itself.
+
 These verified components are foundations, not a completed automatic builder.
 The remaining controller must capture and validate the approved Python/Node
 environment and cached dependency identities, export immutable accepted inputs,
