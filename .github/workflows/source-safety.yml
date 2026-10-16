@@ -34,6 +34,14 @@ jobs:
         run: python -m unittest discover -s tests -p test_candidate_inputs.py -v
       - name: Private build environment inventory and drift boundaries
         run: python -m unittest discover -s tests -p test_build_environment.py -v
+      - name: Windows owned-process lifecycle and crash cleanup (no models)
+        run: python -m unittest discover -s tests -p test_build_process.py -v
+      - name: Exact dependency materialization (synthetic inputs)
+        run: python -m unittest discover -s tests -p test_build_materialize.py -v
+      - name: Persistent candidate queue and acceptance contracts (disposable Git)
+        run: python -m unittest discover -s tests -p test_candidate_builder.py -v
+      - name: Frozen candidate worker integrity (no builds)
+        run: python -m unittest discover -s tests -p test_candidate_runner.py -v
       - name: Actual Git index, privacy and completeness
         run: python scripts/sync_source.py precommit --report-dir "$env:RUNNER_TEMP/offlinegpt-publication"
       - name: Source-only inventory

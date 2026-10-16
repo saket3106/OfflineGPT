@@ -110,6 +110,11 @@ def run(package,profile,expected):
         check('composer_visible',js("(()=>{const e=document.querySelector('textarea');return !!e&&e.getBoundingClientRect().width>100;})()"))
         chats=js('new Promise(resolve=>window.candidateSmokeBridge.getChats(raw=>resolve(JSON.parse(raw))))')
         check('chat_store_bridge',isinstance(chats,list))
+        synthetic_id=js('new Promise(resolve=>window.candidateSmokeBridge.newChat(resolve))')
+        renamed=js('new Promise(resolve=>window.candidateSmokeBridge.renameChat('+json.dumps(synthetic_id)+',"Candidate SQLite smoke",raw=>resolve(JSON.parse(raw))))')
+        check('synthetic_sqlite_bridge_write',renamed.get('ok') is True)
+        chats=js('new Promise(resolve=>window.candidateSmokeBridge.getChats(raw=>resolve(JSON.parse(raw))))')
+        check('synthetic_sqlite_bridge_read',any(row.get('id')==synthetic_id and row.get('title')=='Candidate SQLite smoke' for row in chats))
         monitor();check('no_observed_native_model_child',True)
         js('window.candidateSmokeBridge.closeApp()')
         end=time.monotonic()+8

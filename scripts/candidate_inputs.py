@@ -36,6 +36,9 @@ def inputs(repo,commit,executable):
     if not re.fullmatch('[0-9a-f]{40}',commit):raise CandidateError('Exact source commit required')
     policy=json.loads(git(repo,executable,'show',commit+':scripts/source_sync_policy.json'))
     names=sorted(p for p in policy['managed'] if (p.endswith('.py') and '/' not in p) or p.startswith('frontend-source/') or p in {'Offline GPT.spec','assistant_system_prompt.md'})
+    tracked=git(repo,executable,'ls-tree','-r','--name-only',commit).decode().splitlines()
+    declarations=[p for p in tracked if '/' not in p and re.fullmatch(r'(?:requirements|constraints)(?:[-_.][A-Za-z0-9_-]+)?\.txt',p)]
+    names=sorted(set(names+declarations))
     if not {'app.py','Offline GPT.spec','assistant_system_prompt.md','frontend-source/package.json','frontend-source/pnpm-lock.yaml','frontend-source/vite.config.js'}<=set(names):raise CandidateError('Required build inputs omitted')
     files={}
     for name in names:
@@ -68,6 +71,11 @@ def payload(package,manifest,expected_manifest_sha):
         if not path.is_relative_to(package) or not path.is_file() or path.stat().st_nlink!=1:raise CandidateError('Missing/unsafe payload: '+name)
         actual[name]=sha(path)
         if actual[name]!=h:raise CandidateError('Candidate payload differs: '+name)
+    physical=set()
+    for path in package.rglob('*'):
+        ordinary(path)
+        if path.is_file():physical.add(path.relative_to(package).as_posix())
+    if physical!=set(expected):raise CandidateError('Unmanifested or stale candidate files')
     return {'payloadFiles':len(actual),'payloadSha256':digest(actual),'payloadManifestSha256':expected_manifest_sha}
 def associate(repo,commit,executable,package,manifest,manifest_sha):
     graph=inputs(repo,commit,executable);verified=payload(package,manifest,manifest_sha)

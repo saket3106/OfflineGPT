@@ -27,6 +27,9 @@ class InputTests(unittest.TestCase):
     def test_missing_dependencies_do_not_count_as_complete(self):
         (self.package/'QtCore.dll').unlink()
         with self.assertRaises(candidate.CandidateError):candidate.payload(self.package,self.manifest,self.approved)
+    def test_unmanifested_stale_files_do_not_pass_full_payload_validation(self):
+        (self.package/'stale.dll').write_bytes(b'Not approved')
+        with self.assertRaisesRegex(candidate.CandidateError,'stale'):candidate.payload(self.package,self.manifest,self.approved)
     def test_traversal_absolute_drive_reserved_and_case_collisions_are_blocked(self):
         for value in ('../outside','C:/outside','/outside','\\\\host\\share','file:stream','CON.txt','folder/../outside','trailing.','bad\x00path'):
             with self.subTest(path=value),self.assertRaises(candidate.CandidateError):candidate.relative(value)
@@ -71,5 +74,12 @@ class GitInputTests(unittest.TestCase):
         (self.f.repo/'assistant_system_prompt.md').unlink();self.f.g('add','--all');self.f.g('commit','-qm','Synthetic missing required input')
         missing=self.f.g('rev-parse','HEAD').decode().strip()
         with self.assertRaises(candidate.CandidateError):candidate.inputs(self.f.repo,missing,self.f.f.git)
+    def test_dependency_declarations_are_immutable_build_inputs(self):
+        (self.f.repo/'requirements-build.txt').write_text('SyntheticBuildDependency==1\n')
+        (self.f.repo/'constraints-windows.txt').write_text('SyntheticBuildDependency==1\n')
+        self.f.g('add','--all');self.f.g('commit','-qm','Synthetic declarations')
+        commit=self.f.g('rev-parse','HEAD').decode().strip();graph=candidate.inputs(self.f.repo,commit,self.f.f.git)
+        self.assertIn('requirements-build.txt',graph['files']);self.assertIn('constraints-windows.txt',graph['files'])
+        self.assertNotEqual(graph['applicationInputSha256'],candidate.inputs(self.f.repo,self.commit,self.f.f.git)['applicationInputSha256'])
 
 if __name__=='__main__':unittest.main()
