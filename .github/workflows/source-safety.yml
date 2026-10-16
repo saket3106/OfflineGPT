@@ -26,6 +26,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_source_sync.py -v
       - name: Completed-batch publication and recovery (local bare remotes only)
         run: python -m unittest discover -s tests -p test_auto_sync.py -v
+      - name: Frozen runner integrity and execution boundaries
+        run: python -m unittest discover -s tests -p test_sync_runner.py -v
       - name: Actual Git index, privacy and completeness
         run: python scripts/sync_source.py precommit --report-dir "$env:RUNNER_TEMP/offlinegpt-publication"
       - name: Source-only inventory

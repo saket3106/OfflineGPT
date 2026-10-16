@@ -121,3 +121,20 @@ Codex continuation uses the configured desktop heartbeat, separately from the
 source-publication runner. Local scheduled work needs the computer awake and
 Codex running. Actual account limits/reset times govern continuation; there is
 no quota bypass or unrestricted background coding agent.
+
+## Frozen unattended controller
+
+Scheduled source publication must use `sync_runner.py` and accepted copies of
+the four controller scripts in a private, commit-versioned runtime directory.
+Never point a scheduled action directly at an editable working-tree script.
+The private runtime manifest binds every controller hash, the interpreter,
+configuration and approved roots. The runner rejects changed code/configuration,
+links, missing scripts and unexpected names, then starts the fixed controller
+with Python isolated mode. It records a private bounded execution receipt.
+
+After controller changes, first pass review and exact remote CI. Create a new
+frozen runtime from those committed Git blobs and explicitly update its accepted
+manifest/task action. Do not hot-reload a partially edited controller. Ordinary
+application-source batches continue through the existing completed-batch queue.
+On a supervisor timeout, retain the journal and inspect any owned child process
+before resuming; this is not a general hostile-code sandbox or power-loss proof.
