@@ -255,3 +255,34 @@ artifact bytes, accepted source aliases can record `ASSOCIATED`, explicitly
 an unnecessary application rebuild for control/documentation maintenance;
 changed application inputs still queue a real build. Reuse is non-native
 evidence and cannot make missing engines, weights or licensing ready.
+
+## Staged acceptance before worker adoption
+
+The builder's explicit `stage --job EXACT_JOB_ID` command builds one eligible
+current-profile job only while the existing queue is paused. It uses the same
+immutable source, dependency checks, resource limits, owned-process phases,
+complete payload verification and eleven packaged-shell checks as a normal
+build. It records `promotionDeferred: true` and retains `pointerBefore` and
+`pointerAfter`, but does **not** change the selected candidate or scheduled task.
+Synthetic execution is labeled `fixtureOnly: true`, `actualBuildRun: false`.
+
+A `COMPLETE` staged job means that artifact's acceptance pipeline completed;
+it does not mean the artifact was selected, installed or natively validated.
+Ordinary cached reuse still requires the actual selected pointer and refuses an
+unselected staged artifact. Required sibling jobs and discovery records remain
+intact. Staging cannot reset exhausted attempts or run a historical-profile job.
+
+An interruption after acceptance but before final journaling records
+`RECOVERY_REQUIRED`. Explicit recovery verifies the original selected pointer,
+paused queue, complete process receipts, exact source graph and retained payload
+and acceptance evidence. It can finalize staged evidence without selecting the
+artifact. Unknown pointer changes, corruption or incomplete evidence block
+recovery; the original candidate is never overwritten to make recovery pass.
+
+This primitive alone does **not** solve worker bootstrap. The control-only
+upgrader continues to reject changed application inputs and pending jobs. A
+separate accepted, journaled adoption transaction must bind the new immutable
+profile, old rollback, all pending required source/discovery lineage, genuine
+staged acceptance and scheduled activation. Do not invoke staging from a live
+working-tree controller, edit frozen profiles, or manually force the candidate
+pointer. Native provisioning and production deployment remain separate gates.

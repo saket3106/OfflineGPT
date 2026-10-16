@@ -16,7 +16,7 @@ Error=inputs.CandidateError
 class ReuseRefused(Error):pass
 class Deferred(Error):pass
 SCRIPTS={'candidate_runner.py','candidate_builder.py','candidate_inputs.py','candidate_smoke.py','build_materialize.py','build_bootstrap.py','build_process.py','auto_sync.py','sync_source.py','audit_repository.py'}
-ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','PROMOTING'}
+ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','STAGING','PROMOTING'}
 TERMINAL={'COMPLETE','ASSOCIATED','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUIRED'}
 def save(path,value):auto.sync.atomic_write(path,json.dumps(value,sort_keys=True,indent=2).encode())
 def digest_file(path):return inputs.sha(path)
@@ -121,7 +121,7 @@ class Builder:
         if value['status'] not in ACTIVE|TERMINAL|{'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'} or type(value['attempts']) is not int or not 0<=value['attempts']<=2 or type(value['created']) not in (int,float) or not math.isfinite(value['created']) or value['created']<=0:raise Error('Invalid job lifecycle fields')
         if not re.fullmatch('[a-f0-9]{40}',value['sourceCommit']) or not isinstance(value['graph'],dict) or value['graph'].get('sourceCommit')!=value['sourceCommit'] or not isinstance(value['graph'].get('files'),dict) or not value['graph']['files'] or value['adapters']!=self.adapters or not isinstance(value['acceptedSources'],list) or not value['acceptedSources']:raise Error('Incomplete immutable job identity')
         if value['status']=='COMPLETE' and not self.fixture:
-            if value.get('actualBuildRun') is not True or not isinstance(value.get('pointerAfter'),dict) or value['pointerAfter'].get('buildKey')!=key or set(value.get('phaseReceipts',{}))!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'} or any(row.get('returnCode')!=0 or row.get('remainingOwnedProcesses')!=0 for row in value['phaseReceipts'].values()):raise Error('Job marked complete without genuine build evidence')
+            if value.get('actualBuildRun') is not True or value.get('fixtureOnly') is True or not isinstance(value.get('pointerAfter'),dict) or value['pointerAfter'].get('buildKey')!=key or set(value.get('phaseReceipts',{}))!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'} or any(row.get('returnCode')!=0 or row.get('remainingOwnedProcesses')!=0 for row in value['phaseReceipts'].values()):raise Error('Job marked complete without genuine build evidence')
         return path,value
     def anomaly(self,path,error):
         identity={'name':path.name,'reason':str(error)}
@@ -279,7 +279,13 @@ class Builder:
         if actual!=set(hashes):raise Error('Missing or stale files in complete onedir output')
         manifest=attempt/'payload.json';save(manifest,hashes);save(attempt/'origins.json',origins)
         return manifest
-    def execute(self,path,job):
+    def execute(self,path,job,*,promote=True):
+        # An explicit bootstrap may validate an artifact without selecting it.
+        # Both modes use the same input, resource, process and acceptance gates.
+        if type(promote) is not bool:raise Error('Explicit boolean promotion mode required')
+        if not promote and json.loads((self.root/'control.json').read_text())['mode']!='pause':raise Error('Staged builds require the existing candidate queue to remain paused')
+        pointer_before=self.pointer.read_bytes()
+        old=json.loads(pointer_before)
         if digest_file(self.config)!=job['profileSha256']:raise Error('Build configuration changed')
         actual=inputs.inputs(self.manager.repo,job['sourceCommit'],self.manager.cfg['git'])
         expected=inputs.digest({'application':actual['applicationInputSha256'],'environment':self.environment['environmentSha256'],'adapters':self.adapters,'profile':self.profileHash})
@@ -315,14 +321,43 @@ class Builder:
         profile=attempt/'smoke-profile';exe_hash=inputs.sha(package/'Offline GPT.exe')
         phase('SMOKE',base+['smoke',deps['site'],source,controller,package,profile,exe_hash],50)
         smoke=json.loads((profile/'shell-smoke.json').read_text())
-        acceptance(smoke,json.loads(verification.read_text()),job,exe_hash)
-        self.accepted(job['sourceCommit']);resources.check();resources.incidents();save(attempt/'resources.json',resources.samples)
+        verified=json.loads(verification.read_text())
+        self.reject_fixture_evidence(smoke,verified,phase_receipts)
+        acceptance(smoke,verified,job,exe_hash)
+        self.accepted(job['sourceCommit']);monitor();resources.incidents();save(attempt/'resources.json',resources.samples)
         # Smoke writes its own profile only. Recheck all immutable payload bytes.
         inputs.payload(package,manifest,inputs.sha(manifest))
         pointer={'package':str(package),'exeSha256':exe_hash,'sourceCommit':job['sourceCommit'],'buildKey':job['buildKey'],'payloadManifest':str(manifest),'payloadManifestSha256':inputs.sha(manifest),
           'verification':str(verification),'verificationSha256':inputs.sha(verification),'smokeReceipt':str(profile/'shell-smoke.json'),'smokeSha256':inputs.sha(profile/'shell-smoke.json'),'kind':'VALIDATED_NON_NATIVE_CANDIDATE','binaryPublication':'BLOCKED_NATIVE_PROVENANCE_AND_LICENSES'}
-        old=json.loads(self.pointer.read_text());self.record(path,'PROMOTING',pointerBefore=old,pointerAfter=pointer,phaseReceipts=phase_receipts)
-        save(self.pointer,pointer);return self.record(path,'COMPLETE',accepted=time.time(),pointerAfter=pointer,actualBuildRun=True)
+        if self.pointer.read_bytes()!=pointer_before:raise Error('Candidate pointer changed during execution; retain the artifact without promotion')
+        if not promote and json.loads((self.root/'control.json').read_text())['mode']!='pause':raise Error('Candidate queue was resumed during staged execution; adoption requires review')
+        self.record(path,'PROMOTING' if promote else 'STAGING',pointerBefore=old,pointerAfter=pointer,phaseReceipts=phase_receipts,promotionDeferred=not promote)
+        if promote:save(self.pointer,pointer)
+        return self.record(path,'COMPLETE',accepted=time.time(),pointerAfter=pointer,actualBuildRun=not self.fixture,fixtureOnly=self.fixture)
+    def reject_fixture_evidence(self,smoke,verification,phases):
+        if not self.fixture and any(row.get('fixtureOnly') is True for row in (smoke,verification,*phases.values())):raise Error('Synthetic evidence cannot establish genuine packaged acceptance')
+    def run_job(self,path,job,*,staged=False):
+        """Shared bounded failure handling; a staged failure never promotes."""
+        try:return self.execute(path,job,promote=False) if staged else self.execute(path,job)
+        except Deferred as error:return self.record(path,'WAITING_RESOURCE',reason=str(error),retryAfter=time.time()+300)
+        except auto.NetworkError as error:
+            current=json.loads((path/'job.json').read_text());count=current.get('networkRetries',0)+1
+            if current['status'] not in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'}:return self.record(path,'FAILED',reason=str(error))
+            return self.record(path,'WAITING_NETWORK' if count<8 else 'BLOCKED',reason=str(error),networkRetries=count,retryAfter=time.time()+min(1800,30*2**count))
+        except (Error,auto.Error,process.ProcessError,material.Error,OSError,ValueError,subprocess.SubprocessError) as error:
+            current=json.loads((path/'job.json').read_text());status='RECOVERY_REQUIRED' if current['status'] in {'PROMOTING','STAGING'} else 'CANCELLED' if (path/'cancel.json').exists() else 'FAILED'
+            return self.record(path,status,reason=str(error))
+    def stage(self,key):
+        """Build one exact job while paused, preserving the selected candidate.
+
+        This creates acceptance evidence only. Worker/profile adoption remains a
+        separate journaled operation; no task, discovery or old job is rewritten.
+        """
+        with auto.exclusive(self.lock):
+            if json.loads((self.root/'control.json').read_text())['mode']!='pause':raise Error('Staged builds require the existing candidate queue to remain paused')
+            path,job=self.job(key)
+            if job['profileSha256']!=self.profileHash or job['status'] not in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'} or job['attempts']>=2 or job.get('retryAfter',0)>time.time() or (path/'cancel.json').exists():raise Error('Staging requires an eligible current-profile job with remaining bounded attempts')
+            return self.run_job(path,job,staged=True)
     def once(self):
         with auto.exclusive(self.lock):
             if json.loads((self.root/'control.json').read_text())['mode']!='running':return {'status':'PAUSED'}
@@ -335,15 +370,7 @@ class Builder:
                 if value['status']=='QUEUED' or (value['status'] in {'WAITING_RESOURCE','WAITING_NETWORK'} and value.get('retryAfter',0)<=time.time()):jobs.append((value['created'],path,value))
             if not jobs:return {'status':'ATTENTION' if anomalies else 'IDLE','queueAnomalyCount':anomalies}
             _,path,job=min(jobs,key=lambda row:row[0])
-            try:return {**self.execute(path,job),'queueAnomalyCount':anomalies}
-            except Deferred as error:return self.record(path,'WAITING_RESOURCE',reason=str(error),retryAfter=time.time()+300)
-            except auto.NetworkError as error:
-                current=json.loads((path/'job.json').read_text());count=current.get('networkRetries',0)+1
-                if current['status'] not in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'}:return self.record(path,'FAILED',reason=str(error))
-                return self.record(path,'WAITING_NETWORK' if count<8 else 'BLOCKED',reason=str(error),networkRetries=count,retryAfter=time.time()+min(1800,30*2**count))
-            except (Error,auto.Error,process.ProcessError,material.Error,OSError,ValueError,subprocess.SubprocessError) as error:
-                current=json.loads((path/'job.json').read_text());status='RECOVERY_REQUIRED' if current['status']=='PROMOTING' else 'CANCELLED' if (path/'cancel.json').exists() else 'FAILED'
-                return self.record(path,status,reason=str(error))
+            return {**self.run_job(path,job),'queueAnomalyCount':anomalies}
     def cancel(self,key):
         path,job=self.job(key)
         if job['status'] in TERMINAL or job['profileSha256']!=self.profileHash:raise Error('Terminal/historical work cannot be cancelled')
@@ -360,7 +387,16 @@ class Builder:
     def recover(self,key):
         with auto.exclusive(self.lock):
             path,job=self.job(key);pointer=json.loads(self.pointer.read_text())
+            if job['profileSha256']!=self.profileHash:raise Error('Historical jobs cannot be recovered under a different execution profile')
             if job['status']!='RECOVERY_REQUIRED' or 'pointerAfter' not in job:raise Error('No interrupted promotion to recover')
+            if job.get('promotionDeferred') is True:
+                if json.loads((self.root/'control.json').read_text())['mode']!='pause' or pointer!=job['pointerBefore']:raise Error('Staged recovery requires the original candidate and paused queue')
+                if set(job.get('phaseReceipts',{}))!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'} or any(row.get('returnCode')!=0 or row.get('remainingOwnedProcesses')!=0 for row in job['phaseReceipts'].values()):raise Error('Staged recovery lacks complete owned-process evidence')
+                verification=retained(job['pointerAfter'],job)
+                self.reject_fixture_evidence(json.loads(Path(job['pointerAfter']['smokeReceipt']).read_text()),verification,job['phaseReceipts'])
+                if verification.get('files')!=job['graph']['files'] or inputs.inputs(self.manager.repo,job['sourceCommit'],self.manager.cfg['git'])!=job['graph']:raise Error('Staged recovery source inputs changed')
+                self.accepted(job['sourceCommit'])
+                return self.record(path,'COMPLETE',recovered=time.time(),actualBuildRun=not self.fixture,fixtureOnly=self.fixture)
             if pointer==job['pointerBefore']:return self.record(path,'FAILED',retainedPromotion=job['pointerAfter'],pointerAfter=None,reason='Promotion did not advance; original candidate retained')
             if pointer!=job['pointerAfter']:raise Error('Unknown candidate pointer; manual reconciliation required')
             inputs.payload(Path(pointer['package']),Path(pointer['payloadManifest']),pointer['payloadManifestSha256'])
@@ -369,7 +405,7 @@ class Builder:
             if inputs.sha(Path(pointer['package'])/'Offline GPT.exe')!=pointer['exeSha256']:raise Error('Retained EXE identity changed')
             acceptance(smoke,verification,job,pointer['exeSha256'])
             self.accepted(job['sourceCommit'])
-            return self.record(path,'COMPLETE',recovered=time.time(),actualBuildRun=True)
+            return self.record(path,'COMPLETE',recovered=time.time(),actualBuildRun=not self.fixture,fixtureOnly=self.fixture)
     def status(self):
         jobs=[];issues=[]
         for path in (self.root/'jobs').iterdir():
@@ -380,12 +416,12 @@ class Builder:
                 'sourceDiscovery':json.loads(discovery.read_text()) if discovery.exists() else {},'integrityNote':'Historical job status is not a fresh payload health check'}
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('command',choices=['enqueue','discover','run-once','status','cancel','retry','recover','retry-discovery','start','pause','stop']);parser.add_argument('--commit');parser.add_argument('--job');parser.add_argument('--batch');parser.add_argument('--optional',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('command',choices=['enqueue','discover','run-once','stage','status','cancel','retry','recover','retry-discovery','start','pause','stop']);parser.add_argument('--commit');parser.add_argument('--job');parser.add_argument('--batch');parser.add_argument('--optional',action='store_true');args=parser.parse_args()
     builder=Builder(args.config)
     if args.command=='enqueue':result=builder.enqueue(args.commit,not args.optional)
     elif args.command=='discover':result=builder.discover()
     elif args.command=='run-once':builder.discover();result=builder.once()
-    elif args.command in {'cancel','retry','recover'}:result=getattr(builder,args.command)(args.job)
+    elif args.command in {'cancel','retry','recover','stage'}:result=getattr(builder,args.command)(args.job)
     elif args.command=='retry-discovery':result=builder.retry_discovery(args.batch)
     elif args.command=='status':result=builder.status()
     else:save(builder.root/'control.json',{'mode':'running' if args.command=='start' else args.command});result=builder.status()
