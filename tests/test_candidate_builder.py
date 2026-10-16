@@ -79,10 +79,10 @@ class BuilderTests(unittest.TestCase):
     def test_discovery_is_persistent_bounded_and_does_not_block_existing_jobs(self):
         first=self.enqueue();batch=self.builder.manager.state/'batches'/'synthetic-source-batch';batch.mkdir()
         b.save(batch/'batch.json',{'status':'COMPLETE','candidateBuild':'QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER','commit':self.commit})
-        with patch.object(self.builder,'enqueue',side_effect=b.Error('Synthetic network interruption')):
+        with patch.object(self.builder,'enqueue',side_effect=b.Error('Synthetic network interruption')) as enqueue:
             for i in range(8):
                 with patch.object(b.time,'time',return_value=1000000+i*10000):result=self.builder.discover()
-            self.assertEqual(result[0]['status'],'ATTENTION');self.assertEqual(self.builder.discover(),[])
+            self.assertEqual(result[0]['status'],'ATTENTION');self.assertEqual(self.builder.discover()[0]['status'],'ATTENTION');self.assertEqual(enqueue.call_count,8)
         self.assertEqual(self.builder.job(first['buildKey'])[1]['status'],'QUEUED')
     def test_discovery_deduplicates_accepted_batches(self):
         batch=self.builder.manager.state/'batches'/'synthetic-source-batch';batch.mkdir()
@@ -101,6 +101,42 @@ class BuilderTests(unittest.TestCase):
             for i in range(8):
                 with patch.object(b.time,'time',return_value=1000000+i*10000):result=self.builder.once()
         self.assertEqual(result['status'],'BLOCKED');self.assertEqual(result['attempts'],0);self.assertEqual(result['networkRetries'],8)
+    def test_corrupt_job_is_preserved_and_does_not_starve_valid_sibling(self):
+        bad=self.enqueue();badpath,_=self.builder.job(bad['buildKey']);raw=b'{"interrupted":';(badpath/'job.json').write_bytes(raw)
+        good=self.builder.enqueue(self.change('app.py','VALUE=2\n'))
+        with patch.object(self.builder,'execute',side_effect=lambda path,job:self.builder.record(path,'COMPLETE',fixtureOnly=True,actualBuildRun=False)):
+            result=self.builder.once()
+        self.assertEqual(result['buildKey'],good['buildKey']);self.assertEqual(result['queueAnomalyCount'],1);self.assertEqual((badpath/'job.json').read_bytes(),raw)
+        self.assertEqual(self.builder.once()['status'],'ATTENTION');self.assertEqual(len(self.builder.status()['queueIssues']),1)
+        receipts=list((self.private/'queue-anomalies').glob('*.json'));self.assertEqual(len(receipts),1);self.assertTrue(json.loads(receipts[0].read_text())['originalPreserved'])
+    def test_orphan_directory_and_unknown_lifecycle_are_explicit_attention(self):
+        (self.private/'jobs'/('f'*64)).mkdir();job=self.enqueue();path,_=self.builder.job(job['buildKey']);self.builder.record(path,'NOT_A_REAL_STATE')
+        self.assertEqual(self.builder.once()['status'],'ATTENTION');self.assertEqual(len(self.builder.status()['queueIssues']),2);self.assertTrue((self.private/'jobs'/('f'*64)).is_dir())
+    def test_malformed_source_batch_does_not_abort_discovery_siblings(self):
+        batches=self.builder.manager.state/'batches';bad=batches/('c'*32);bad.mkdir();raw=b'{bad';(bad/'batch.json').write_bytes(raw)
+        good=batches/('d'*32);good.mkdir();b.save(good/'batch.json',{'status':'COMPLETE','candidateBuild':'QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER','commit':self.commit})
+        result=self.builder.discover();self.assertTrue(any(row['status']=='ATTENTION' for row in result));self.assertTrue(any(row['status']=='QUEUED' for row in result));self.assertEqual((bad/'batch.json').read_bytes(),raw)
+        self.assertTrue(any(row['status']=='ATTENTION' for row in self.builder.discover()))
+    def test_low_disk_defers_without_spending_build_attempt(self):
+        job=self.enqueue()
+        with patch.object(b.shutil,'disk_usage',return_value=type('Disk',(),{'free':1024**3})()):result=self.builder.once()
+        self.assertEqual(result['status'],'WAITING_RESOURCE');self.assertEqual(result['attempts'],0);self.assertEqual(self.builder.pointer.read_bytes(),self.original_pointer)
+    def test_incomplete_job_identity_never_reaches_executor(self):
+        job=self.enqueue();path,_=self.builder.job(job['buildKey']);self.builder.record(path,'QUEUED',graph=None)
+        with patch.object(self.builder,'execute',side_effect=AssertionError('Incomplete work must not execute')):self.assertEqual(self.builder.once()['status'],'ATTENTION')
+    def test_failed_phase_retains_resource_telemetry(self):
+        job=self.enqueue()
+        class ResourceFixture:
+            def __init__(self):self.samples=[]
+            def preflight(self):self.check()
+            def check(self):self.samples.append({'fixtureOnly':True,'count':len(self.samples)})
+            def incidents(self):pass
+        def material_fixture(receipt,expected,destination,monitor,frontend,allowed):
+            (frontend.parent.parent/'ui').mkdir();(frontend.parent.parent/'ui/index.html').write_text('Synthetic UI, never launched')
+            return {'python':self.f.cfg['python'],'node':'not-executed','site':str(destination/'site')}
+        with patch.object(b,'Resources',ResourceFixture),patch.object(b.material,'materialize',side_effect=material_fixture),patch.object(b.process,'run',side_effect=b.process.ProcessError('Synthetic phase failure')):
+            result=self.builder.once()
+        self.assertEqual(result['status'],'FAILED');telemetry=json.loads((Path(result['attempt'])/'resources.json').read_text());self.assertTrue(all(row['fixtureOnly'] for row in telemetry));self.assertEqual(self.builder.pointer.read_bytes(),self.original_pointer)
 
 class AcceptanceTests(unittest.TestCase):
     def setUp(self):
@@ -108,6 +144,9 @@ class AcceptanceTests(unittest.TestCase):
         self.smoke={'status':'PASSED','remainingOwnedPids':[],'modelRequestsIssued':0,'exeSha256':'c'*64,'checks':dict.fromkeys(b.SMOKE_CHECKS,True)}
         self.verification={'sourceCommit':'a'*40,'compiledModuleMatches':{'app.py':True,'tool.py':True},'candidateSha256':'c'*64,'applicationInputSha256':'b'*64}
     def test_complete_non_native_evidence_is_required(self):b.acceptance(self.smoke,self.verification,self.job,'c'*64)
+    def test_overall_budget_cannot_be_extended_by_wall_clock_rewind(self):
+        with patch.object(b.time,'monotonic',return_value=100):resources=b.Resources()
+        with patch.object(b.time,'monotonic',return_value=1001),patch.object(b.time,'time',return_value=-10000),self.assertRaisesRegex(b.Error,'fifteen-minute'):resources.check()
     def test_empty_partial_false_or_native_receipts_never_pass(self):
         for changed in ({'checks':{}},{'checks':{'normal_exit':True}},{'modelRequestsIssued':1},{'remainingOwnedPids':[123]},{'exeSha256':'d'*64}):
             with self.subTest(changed=changed),self.assertRaises(b.Error):b.acceptance({**self.smoke,**changed},self.verification,self.job,'c'*64)

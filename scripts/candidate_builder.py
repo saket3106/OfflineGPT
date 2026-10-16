@@ -6,7 +6,7 @@ downloads, binary upload or automatic permanent-file cleanup is exposed.
 from __future__ import annotations
 import argparse,ast,ctypes,datetime,hashlib,importlib.util,json,os
 from pathlib import Path
-import re,subprocess,time,uuid
+import math,re,shutil,subprocess,time,uuid
 
 def sibling(name):
     spec=importlib.util.spec_from_file_location('builder_'+name,Path(__file__).with_name(name+'.py'))
@@ -33,9 +33,9 @@ def acceptance(smoke,verification,job,exe_hash):
         raise Error('Actual packaged acceptance evidence is incomplete or inconsistent')
 
 class Resources:
-    def __init__(self):self.started=time.time();self.last=0;self.samples=[]
+    def __init__(self):self.started=time.time();self.deadline=time.monotonic()+900;self.last=0;self.samples=[]
     def check(self,minimum=512*1024**2):
-        if time.time()-self.started>900:raise Error('Candidate build exceeded the overall fifteen-minute budget')
+        if time.monotonic()>self.deadline:raise Error('Candidate build exceeded the overall fifteen-minute budget')
         class MEMORY(ctypes.Structure):_fields_=[('length',ctypes.c_ulong),('load',ctypes.c_ulong)]+[(n,ctypes.c_ulonglong) for n in ('total','available','pageTotal','pageAvailable','virtualTotal','virtualAvailable','extended')]
         state=MEMORY();state.length=ctypes.sizeof(state)
         if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(state)):raise Error('Memory instrumentation unavailable')
@@ -95,9 +95,23 @@ class Builder:
         if not re.fullmatch('[0-9a-f]{64}',key):raise Error('Invalid build job ID')
         path=inputs.ordinary(self.root/'jobs'/key)
         if not path.is_dir():raise Error('Unknown build job')
-        value=json.loads((path/'job.json').read_text())
+        journal=inputs.ordinary(path/'job.json')
+        if not journal.is_file() or journal.stat().st_size>8*1024**2:raise Error('Missing or oversized job journal; preserve for review')
+        value=json.loads(journal.read_text(encoding='utf-8'))
         if value['buildKey']!=key or value['profileSha256']!=self.profileHash:raise Error('Build job/config identity changed')
+        if value['status'] not in ACTIVE|TERMINAL|{'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'} or type(value['attempts']) is not int or not 0<=value['attempts']<=2 or type(value['created']) not in (int,float) or not math.isfinite(value['created']) or value['created']<=0:raise Error('Invalid job lifecycle fields')
+        if not re.fullmatch('[a-f0-9]{40}',value['sourceCommit']) or not isinstance(value['graph'],dict) or value['graph'].get('sourceCommit')!=value['sourceCommit'] or not isinstance(value['graph'].get('files'),dict) or not value['graph']['files'] or value['adapters']!=self.adapters or not isinstance(value['acceptedSources'],list) or not value['acceptedSources']:raise Error('Incomplete immutable job identity')
+        if value['status']=='COMPLETE' and not self.fixture:
+            if value.get('actualBuildRun') is not True or not isinstance(value.get('pointerAfter'),dict) or value['pointerAfter'].get('buildKey')!=key or set(value.get('phaseReceipts',{}))!={'FRONTEND','PACKAGING','VERIFYING','SMOKE'} or any(row.get('returnCode')!=0 or row.get('remainingOwnedProcesses')!=0 for row in value['phaseReceipts'].values()):raise Error('Job marked complete without genuine build evidence')
         return path,value
+    def anomaly(self,path,error):
+        identity={'name':path.name,'reason':str(error)}
+        try:
+            journal=inputs.ordinary(path/'job.json')
+            if journal.is_file() and journal.stat().st_size<=8*1024**2:identity['originalSha256']=inputs.sha(journal)
+        except (Error,OSError):pass
+        receipt=self.root/'queue-anomalies'/(inputs.digest(identity)+'.json')
+        if not receipt.exists():save(receipt,{**identity,'status':'RECOVERY_REQUIRED','observed':time.time(),'originalPreserved':True})
     def enqueue(self,commit,required=True):
         with auto.exclusive(self.lock):return self._enqueue(commit,required)
     def _enqueue(self,commit,required):
@@ -117,15 +131,23 @@ class Builder:
         # Only explicitly optional pending revisions may be superseded.
         for previous in (self.root/'jobs').iterdir():
             if previous==path or not (previous/'job.json').exists():continue
-            old=json.loads((previous/'job.json').read_text())
+            try:_,old=self.job(previous.name)
+            except (Error,OSError,ValueError,KeyError,TypeError) as error:self.anomaly(previous,error);continue
             if old['status']=='QUEUED' and not old['required']:self.record(previous,'SUPERSEDED',supersededBy=key)
         return result
     def discover(self):
         with auto.exclusive(self.root/'discovery.lock'):
             results=[];receipt=self.root/'source-discovery.json';seen=json.loads(receipt.read_text()) if receipt.exists() else {}
             for path in (self.manager.state/'batches').iterdir():
-                if not (path/'batch.json').is_file():continue
-                value=json.loads((path/'batch.json').read_text());previous=seen.get(path.name,{})
+                previous=seen.get(path.name,{})
+                if previous.get('status')=='ATTENTION':results.append(previous);continue
+                try:
+                    journal=inputs.ordinary(path/'batch.json')
+                    if not journal.is_file() or journal.stat().st_size>8*1024**2:raise Error('Missing/oversized source batch journal')
+                    value=json.loads(journal.read_text(encoding='utf-8'))
+                    if not isinstance(value,dict) or not isinstance(value.get('status'),str):raise Error('Malformed source batch lifecycle')
+                except (Error,OSError,ValueError,KeyError,TypeError) as error:
+                    seen[path.name]={'status':'ATTENTION','sourceBatch':path.name,'reason':str(error),'originalPreserved':True};save(receipt,seen);results.append(seen[path.name]);continue
                 if value.get('status')!='COMPLETE' or value.get('candidateBuild')!='QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER' or previous.get('status') in {'QUEUED','ATTENTION'}:continue
                 if previous.get('retryAfter',0)>time.time():continue
                 try:
@@ -179,6 +201,7 @@ class Builder:
         actual=inputs.inputs(self.manager.repo,job['sourceCommit'],self.manager.cfg['git'])
         expected=inputs.digest({'application':actual['applicationInputSha256'],'environment':self.environment['environmentSha256'],'adapters':self.adapters,'profile':self.profileHash})
         if actual!=job['graph'] or expected!=job['buildKey']:raise Error('Queued immutable input graph changed')
+        if shutil.disk_usage(self.root).free<8*1024**3:raise Deferred('Defer candidate build until at least 8 GiB of disk space is free')
         self.accepted(job['sourceCommit']);resources=Resources();resources.preflight();resources.incidents()
         self.record(path,'PREPARING',attempts=job['attempts']+1,started=time.time())
         # CreateProcessW/Node still reject some >MAX_PATH executable names
@@ -188,7 +211,10 @@ class Builder:
         self.record(path,'MATERIALIZING',attempt=str(attempt),attempts=job['attempts']+1,started=time.time())
         def monitor():
             if (path/'cancel.json').exists():raise Error('Build cancellation requested')
-            resources.check()
+            count=len(resources.samples)
+            try:resources.check()
+            finally:
+                if len(resources.samples)!=count:save(attempt/'resources.json',resources.samples)
         source,controller=self.source_snapshot(job,attempt,monitor)
         deps=material.materialize(Path(self.cfg['environmentReceipt']),self.cfg['environmentReceiptSha256'],attempt/'dependencies',monitor,source/'frontend-source/node_modules',self.cfg['allowedPth'])
         save(attempt/'materialization.json',deps);env=self.child_environment(attempt,deps);phase_receipts={}
@@ -217,14 +243,16 @@ class Builder:
     def once(self):
         with auto.exclusive(self.lock):
             if json.loads((self.root/'control.json').read_text())['mode']!='running':return {'status':'PAUSED'}
-            jobs=[]
+            jobs=[];anomalies=0
             for path in (self.root/'jobs').iterdir():
-                _,value=self.job(path.name)
+                try:_,value=self.job(path.name)
+                except (Error,OSError,ValueError,KeyError,TypeError) as error:
+                    self.anomaly(path,error);anomalies+=1;continue
                 if value['status'] in ACTIVE:return self.record(path,'RECOVERY_REQUIRED',reason='Interrupted build phase; retain outputs and explicitly recover/retry')
                 if value['status']=='QUEUED' or (value['status'] in {'WAITING_RESOURCE','WAITING_NETWORK'} and value.get('retryAfter',0)<=time.time()):jobs.append((value['created'],path,value))
-            if not jobs:return {'status':'IDLE'}
+            if not jobs:return {'status':'ATTENTION' if anomalies else 'IDLE','queueAnomalyCount':anomalies}
             _,path,job=min(jobs,key=lambda row:row[0])
-            try:return self.execute(path,job)
+            try:return {**self.execute(path,job),'queueAnomalyCount':anomalies}
             except Deferred as error:return self.record(path,'WAITING_RESOURCE',reason=str(error),retryAfter=time.time()+300)
             except auto.NetworkError as error:
                 current=json.loads((path/'job.json').read_text());count=current.get('networkRetries',0)+1
@@ -256,7 +284,12 @@ class Builder:
             acceptance(smoke,verification,job,pointer['exeSha256'])
             self.accepted(job['sourceCommit'])
             return self.record(path,'COMPLETE',recovered=time.time(),actualBuildRun=True)
-    def status(self):return {'control':json.loads((self.root/'control.json').read_text()),'candidate':json.loads(self.pointer.read_text()),'jobs':[json.loads((p/'job.json').read_text()) for p in (self.root/'jobs').iterdir() if (p/'job.json').is_file()]}
+    def status(self):
+        jobs=[];issues=[]
+        for path in (self.root/'jobs').iterdir():
+            try:jobs.append(self.job(path.name)[1])
+            except (Error,OSError,ValueError,KeyError,TypeError) as error:issues.append({'name':path.name,'status':'RECOVERY_REQUIRED','reason':str(error)})
+        return {'control':json.loads((self.root/'control.json').read_text()),'candidate':json.loads(self.pointer.read_text()),'jobs':jobs,'queueIssues':issues}
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('command',choices=['enqueue','discover','run-once','status','cancel','retry','recover','start','pause','stop']);parser.add_argument('--commit');parser.add_argument('--job');parser.add_argument('--optional',action='store_true');args=parser.parse_args()

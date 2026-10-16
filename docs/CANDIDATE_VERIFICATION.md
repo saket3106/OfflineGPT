@@ -137,6 +137,21 @@ after eight failures without blocking other queued jobs or source publication.
 Preflight resource deferrals wait five minutes without consuming a build
 attempt or closing user apps. Preflight network retries have an eight-failure
 attention boundary; actual interrupted/failed build attempts remain explicit.
+Individual orphan/corrupt job journals are preserved and recorded in private
+`queue-anomalies` receipts. They cannot abort unrelated valid enqueue/build
+work. Unknown lifecycle or incomplete source identities never execute, and
+missing output never becomes completion. Malformed source batch/discovery
+records require review while already accepted queued jobs can still progress;
+the worker reports persistent attention separately from an individual success.
+Preflight also defers below 8 GiB free disk space. Resource samples are saved
+as phases run so failure evidence survives, rather than appearing only after
+successful promotion. Previously accepted Windows-separator payload manifests
+remain supported with the same collision and stale-extra checks. Immutable Git
+source paths are checked for Windows case collisions before exporting them.
+
+Changes to these controls do not mutate an already frozen scheduled runtime.
+Accept the new exact-source CI and use a reviewed, journaled runtime/profile
+upgrade; preserve the current validated artifact and pending-version evidence.
 
 Permanent Windows task deployment and actual executor acceptance must be
 recorded separately after accepted exact-source CI. Tests using disposable Git
@@ -157,3 +172,17 @@ No candidate installation is automatic. Native provenance/licensing and clean
 Windows acceptance still block downloadable binary publication. Model weights,
 private configuration, user databases and raw test profiles must never enter
 source commits or release artifacts.
+
+## Native assets are a separate gate
+
+The automated onedir currently contains the application and reviewed Python/Qt
+dependencies. It is a **shell-only, non-native candidate** until separately
+approved native engines, model locations and voice assets are provisioned and
+genuinely tested. Do not infer GPT, vision, image or speech readiness from the
+eleven shell assertions. Existing packages can contain extra inference DLLs,
+executables, voice weights, thumbnails and logs outside their COLLECT manifest.
+Never mirror those extras wholesale into a clean candidate or source export.
+Preserve originals; inventory them privately, establish origin/license and DLL
+closure, and exclude real data. A strict full-payload verifier must reject
+unmanifested extras rather than silently treating a listed subset as the whole
+package. An unchanged old EXE hash proves only that EXE, not every adjacent file.

@@ -1,6 +1,8 @@
 """Frozen build-worker input contracts; no builds, networks or user data."""
 import importlib.util,json,shutil,sys,tempfile,unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock,patch
 spec=importlib.util.spec_from_file_location('frozen_build_worker',Path(__file__).resolve().parents[1]/'scripts/candidate_runner.py')
 r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
 class RunnerTests(unittest.TestCase):
@@ -27,4 +29,14 @@ class RunnerTests(unittest.TestCase):
     def test_editable_runtime_path_is_not_accepted(self):
         self.v['runtimeRoot']=str(self.root/'working');self.save()
         with self.assertRaises(r.Error):r.validate(self.path)
+    def execute_fixture(self,controller):
+        module=SimpleNamespace(Builder=lambda config:controller,Error=RuntimeError,auto=SimpleNamespace(Error=ValueError),save=lambda path,value:path.write_text(json.dumps(value)))
+        spec=SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module:None))
+        with patch.object(r.importlib.util,'spec_from_file_location',return_value=spec),patch.object(r.importlib.util,'module_from_spec',return_value=module):return r.run(self.path)
+    def test_corrupted_discovery_does_not_prevent_existing_queue_progress(self):
+        controller=Mock();controller.discover.side_effect=ValueError('Synthetic corrupt discovery index');controller.once.return_value={'status':'IDLE'}
+        result=self.execute_fixture(controller);controller.once.assert_called_once();self.assertTrue(result['requiresReview']);self.assertEqual(result['returnCode'],2);self.assertIn('Synthetic',result['discoveryIssue'])
+    def test_queue_attention_cannot_be_reported_as_healthy_idle(self):
+        controller=Mock();controller.discover.return_value=[];controller.once.return_value={'status':'ATTENTION','queueAnomalyCount':1}
+        result=self.execute_fixture(controller);self.assertEqual(result['queueAnomalyCount'],1);self.assertTrue(result['requiresReview']);self.assertEqual(result['returnCode'],2)
 if __name__=='__main__':unittest.main()

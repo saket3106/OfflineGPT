@@ -28,8 +28,11 @@ def run(path):
     spec=importlib.util.spec_from_file_location('frozen_candidate_builder',roots['runtimeRoot']/'scripts/candidate_builder.py')
     builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
     try:
-        controller=builder.Builder(roots['configPath']);discovery=controller.discover();result=controller.once()
-        receipt.update(status=result['status'],buildKey=result.get('buildKey'),actualBuildRun=result.get('actualBuildRun',False),discoveryCount=len(discovery),returnCode=0 if result['status'] in {'IDLE','PAUSED','COMPLETE','WAITING_RESOURCE','WAITING_NETWORK'} else 2)
+        controller=builder.Builder(roots['configPath']);discovery=[];issue=None
+        try:discovery=controller.discover()
+        except (builder.Error,builder.auto.Error,OSError,ValueError,KeyError,TypeError) as error:issue=str(error)
+        result=controller.once();attention=bool(issue or result.get('queueAnomalyCount') or any(row.get('status')=='ATTENTION' for row in discovery))
+        receipt.update(status=result['status'],buildKey=result.get('buildKey'),actualBuildRun=result.get('actualBuildRun',False),discoveryCount=len(discovery),discoveryIssue=issue,queueAnomalyCount=result.get('queueAnomalyCount',0),requiresReview=attention,returnCode=0 if not attention and result['status'] in {'IDLE','PAUSED','COMPLETE','WAITING_RESOURCE','WAITING_NETWORK'} else 2)
     except (builder.Error,builder.auto.Error,OSError,ValueError,KeyError) as error:receipt.update(status='STOPPED',reason=str(error),returnCode=2)
     receipt['elapsedSeconds']=time.monotonic()-started
     builder.save(roots['privateRoot']/'last-worker-run.json',receipt)

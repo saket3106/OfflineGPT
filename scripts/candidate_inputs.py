@@ -39,6 +39,7 @@ def inputs(repo,commit,executable):
     tracked=git(repo,executable,'ls-tree','-r','--name-only',commit).decode().splitlines()
     declarations=[p for p in tracked if '/' not in p and re.fullmatch(r'(?:requirements|constraints)(?:[-_.][A-Za-z0-9_-]+)?\.txt',p)]
     names=sorted(set(names+declarations))
+    if len({name.casefold() for name in names})!=len(names):raise CandidateError('Colliding Windows source input paths')
     if not {'app.py','Offline GPT.spec','assistant_system_prompt.md','frontend-source/package.json','frontend-source/pnpm-lock.yaml','frontend-source/vite.config.js'}<=set(names):raise CandidateError('Required build inputs omitted')
     files={}
     for name in names:
@@ -75,7 +76,7 @@ def payload(package,manifest,expected_manifest_sha):
     for path in package.rglob('*'):
         ordinary(path)
         if path.is_file():physical.add(path.relative_to(package).as_posix())
-    if physical!=set(expected):raise CandidateError('Unmanifested or stale candidate files')
+    if physical!=set(actual):raise CandidateError('Unmanifested or stale candidate files')
     return {'payloadFiles':len(actual),'payloadSha256':digest(actual),'payloadManifestSha256':expected_manifest_sha}
 def associate(repo,commit,executable,package,manifest,manifest_sha):
     graph=inputs(repo,commit,executable);verified=payload(package,manifest,manifest_sha)

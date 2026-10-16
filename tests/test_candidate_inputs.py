@@ -30,6 +30,12 @@ class InputTests(unittest.TestCase):
     def test_unmanifested_stale_files_do_not_pass_full_payload_validation(self):
         (self.package/'stale.dll').write_bytes(b'Not approved')
         with self.assertRaisesRegex(candidate.CandidateError,'stale'):candidate.payload(self.package,self.manifest,self.approved)
+    def test_legacy_windows_separators_remain_valid_without_allowing_collisions(self):
+        folder=self.package/'runtime';folder.mkdir();(folder/'part.dll').write_bytes(b'Synthetic DLL')
+        values=json.loads(self.manifest.read_text());values['runtime\\part.dll']=candidate.sha(folder/'part.dll');self.save(values)
+        self.assertEqual(candidate.payload(self.package,self.manifest,self.approved)['payloadFiles'],3)
+        values['runtime/part.dll']=values['runtime\\part.dll'];self.save(values)
+        with self.assertRaisesRegex(candidate.CandidateError,'Colliding'):candidate.payload(self.package,self.manifest,self.approved)
     def test_traversal_absolute_drive_reserved_and_case_collisions_are_blocked(self):
         for value in ('../outside','C:/outside','/outside','\\\\host\\share','file:stream','CON.txt','folder/../outside','trailing.','bad\x00path'):
             with self.subTest(path=value),self.assertRaises(candidate.CandidateError):candidate.relative(value)
@@ -81,5 +87,10 @@ class GitInputTests(unittest.TestCase):
         commit=self.f.g('rev-parse','HEAD').decode().strip();graph=candidate.inputs(self.f.repo,commit,self.f.f.git)
         self.assertIn('requirements-build.txt',graph['files']);self.assertIn('constraints-windows.txt',graph['files'])
         self.assertNotEqual(graph['applicationInputSha256'],candidate.inputs(self.f.repo,self.commit,self.f.f.git)['applicationInputSha256'])
+    def test_git_only_case_collision_is_rejected_before_export(self):
+        alias='frontend-source/PHOTO.jpg';p=self.f.repo/'scripts/source_sync_policy.json';v=json.loads(p.read_text());v['managed'].append(alias);p.write_text(json.dumps(v))
+        blob=self.f.g('rev-parse',self.commit+':frontend-source/photo.jpg').decode().strip();self.f.g('config','core.ignorecase','false');self.f.g('add','scripts/source_sync_policy.json');self.f.g('update-index','--add','--cacheinfo','100644,'+blob+','+alias);self.f.g('commit','-qm','Synthetic Git-only collision')
+        commit=self.f.g('rev-parse','HEAD').decode().strip()
+        with self.assertRaisesRegex(candidate.CandidateError,'Colliding'):candidate.inputs(self.f.repo,commit,self.f.f.git)
 
 if __name__=='__main__':unittest.main()
