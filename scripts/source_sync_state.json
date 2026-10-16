@@ -2,12 +2,12 @@
   "version": 1,
   "managed": {
     "Offline GPT.spec": {
-      "source": "7d095a988c6e6386e3c457ee9805deb2f70bf7b05a07a91512bbc6f5d51e63d6",
-      "repository": "7d095a988c6e6386e3c457ee9805deb2f70bf7b05a07a91512bbc6f5d51e63d6"
+      "source": "fef89ae3da1cd474272801712459d50da8f543430a04faa9b36e6ffe416f8409",
+      "repository": "fef89ae3da1cd474272801712459d50da8f543430a04faa9b36e6ffe416f8409"
     },
     "app.py": {
-      "source": "02aaebb94bc88c568ce678bce3dc6a0cd2cfbc3807e9dd6d24dff5b5247a5ff2",
-      "repository": "02aaebb94bc88c568ce678bce3dc6a0cd2cfbc3807e9dd6d24dff5b5247a5ff2"
+      "source": "a192dc8b20a4f56fd41a8e102dd1e7c609f84085d007aa253cbd1186bc45461b",
+      "repository": "a192dc8b20a4f56fd41a8e102dd1e7c609f84085d007aa253cbd1186bc45461b"
     },
     "assistant_system_prompt.md": {
       "source": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19",
@@ -142,12 +142,12 @@
       "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
     },
     "frontend-source/src/main.jsx": {
-      "source": "8226da10e8948a4dc8f30ca6b6c36edf0ea38f247ad06b32ee307fb1db015001",
-      "repository": "8226da10e8948a4dc8f30ca6b6c36edf0ea38f247ad06b32ee307fb1db015001"
+      "source": "ac1cd638eae4c6f173e847da23f905aabfb3d5edd58a66f9326965e60d576730",
+      "repository": "ac1cd638eae4c6f173e847da23f905aabfb3d5edd58a66f9326965e60d576730"
     },
     "frontend-source/src/styles.css": {
-      "source": "ffbe5c70e8a8de2585f730d25fd7e700cf2d6514bcecebfa416d327884980701",
-      "repository": "ffbe5c70e8a8de2585f730d25fd7e700cf2d6514bcecebfa416d327884980701"
+      "source": "cd1b7096d98255ecc21ef9088e9a4351061d2455b33cc2945d5053510c35d926",
+      "repository": "cd1b7096d98255ecc21ef9088e9a4351061d2455b33cc2945d5053510c35d926"
     },
     "frontend-source/src/workspace.jsx": {
       "source": "442744af03de82b9e9a61dedf2ca8da95f43d0fbb35fddedbc56fa50e41d82a4",
@@ -170,8 +170,8 @@
       "repository": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67"
     },
     "integrated_runtime.py": {
-      "source": "da0c1daab00a6f1eee841ab68fc64d03e5e7e8867fb9982be4d3cdc3267e1ab5",
-      "repository": "da0c1daab00a6f1eee841ab68fc64d03e5e7e8867fb9982be4d3cdc3267e1ab5"
+      "source": "fbb92999e5d94dcb00cb4632debce145a0399313fad773e3ca65375c5e9224f8",
+      "repository": "fbb92999e5d94dcb00cb4632debce145a0399313fad773e3ca65375c5e9224f8"
     },
     "intelligence.py": {
       "source": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3",
@@ -344,6 +344,14 @@
     "tests/test_runtime_contracts.py": {
       "source": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2",
       "repository": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2"
+    },
+    "model_inspection.py": {
+      "source": "645d85a6f44da928d234a6808893d3af9085a55b14e162e364d6b2a14999c2bf",
+      "repository": "645d85a6f44da928d234a6808893d3af9085a55b14e162e364d6b2a14999c2bf"
+    },
+    "tests/test_model_inspection.py": {
+      "source": "3670b4e3cbe349d6f6315b759c8778c3a0dc934774e0a63f024961ad868f0690",
+      "repository": "3670b4e3cbe349d6f6315b759c8778c3a0dc934774e0a63f024961ad868f0690"
     }
   },
   "protected": {

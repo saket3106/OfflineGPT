@@ -1579,6 +1579,7 @@ class EngineManager:
         self._last_request_time = 0.0
         self._idle_timer = None
         self._current_generation_id = 0
+        self._model_inspection_cache = {}
 
     def reload(self):
         previous = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
@@ -1826,6 +1827,29 @@ class EngineManager:
             model_size = model_path.stat().st_size if model_exists else 0
         except OSError:
             model_path, model_exists, model_size = None, False, 0
+        inspection = None
+        if model_exists and model_path and str(model_path).lower().endswith(".gguf"):
+            try:
+                mtime = model_path.stat().st_mtime_ns
+                cached = getattr(self, "_model_inspection_cache", {}).get(str(model_path))
+                if cached and cached[0] == mtime:
+                    inspection = cached[1]
+                else:
+                    import model_inspection
+                    res = model_inspection.inspect_gguf(model_path)
+                    meta = res.get("metadata", {})
+                    arch = meta.get("general.architecture", "unknown")
+                    ctx = meta.get(f"{arch}.context_length", meta.get("general.context_length", 4096))
+                    inspection = {
+                        "architecture": str(arch),
+                        "contextLength": int(ctx) if str(ctx).isdigit() or isinstance(ctx, (int, float)) else 4096,
+                        "tensorCount": int(res.get("tensorCount", 0)),
+                        "warnings": list(res.get("warnings", []))
+                    }
+                    if hasattr(self, "_model_inspection_cache"):
+                        self._model_inspection_cache[str(model_path)] = (mtime, inspection)
+            except Exception:
+                inspection = None
         memory = physical_memory_status()
         backend = self.cfg.get("chat_backend", "bundled")
         try:
@@ -1888,6 +1912,7 @@ class EngineManager:
             "lmStudioCliPresent": lm_cli_present,
             "bionicPresent": bionic_present,
             "backendProcessId": bionic_pid if backend == "lmstudio" else self.runtime.process.pid if loaded and self.runtime else None,
+            "modelInspection": inspection,
             **self.vision_model_status(),
         }
 

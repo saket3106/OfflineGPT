@@ -1238,3 +1238,7 @@ button:disabled { opacity: .45; }
 .library-compare-dialog h2{font-size:20px;margin:0 0 10px}.library-compare-dialog .image-compare{margin:20px 0}.library-compare-dialog .image-compare img{height:300px}.library-compare-dialog select{width:100%;padding:8px;margin:8px 0;background:rgb(var(--panel));color:inherit;border:1px solid rgb(var(--line));border-radius:8px}
 .bookmark-result{display:grid;gap:6px;text-align:left;width:100%;padding:14px 0;border:0;border-bottom:1px solid rgb(var(--line));background:transparent;color:inherit}.bookmark-result span{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.resource-summary{font-size:11px;color:rgb(var(--muted));white-space:nowrap}
 @media(max-width:1600px){.resource-summary{display:none}}@media(max-width:600px){.library-compare-dialog .image-compare{grid-template-columns:1fr}}
+
+.model-inspection-badge { margin-top: 4px; font-size: 11px; line-height: 1.4; }
+.model-inspection-badge .inspection-ok { color: #40c990; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; }
+.model-inspection-badge .inspection-warning { color: #d4a84b; font-size: 10px; }

@@ -2016,7 +2016,9 @@ const SettingField = memo(function SettingField({
   disabled = false,
   value,
   onChange,
-  onBrowse
+  onBrowse,
+  onInspect = null,
+  inspection = null
 }) {
   const currentValue = options ? (value !== undefined ? value : options[0]?.[0] ?? "") : (value ?? "");
   return (
@@ -2056,6 +2058,31 @@ const SettingField = memo(function SettingField({
               {browseKind === "directory" ? "Choose folder" : "Browse"}
             </button>
           )}
+          {onInspect && currentValue && (
+            <button
+              type="button"
+              className="browse-button"
+              title="Inspect GGUF metadata"
+              onClick={(e) => {
+                e.preventDefault();
+                onInspect?.(name, currentValue);
+              }}
+            >
+              Inspect
+            </button>
+          )}
+        </div>
+      )}
+      {inspection && (
+        <div className="model-inspection-badge">
+          {inspection.error ? (
+            <span className="inspection-warning">⚠ {inspection.error}</span>
+          ) : (
+            <span className="inspection-ok">
+              ✓ {inspection.metadata?.['general.architecture'] || 'GGUF'} · {inspection.tensorCount} tensors · {inspection.metadata?.[`${inspection.metadata?.['general.architecture']}.context_length`] || '4096'} ctx
+              {inspection.warnings?.length > 0 ? ` (${inspection.warnings.join(', ')})` : ''}
+            </span>
+          )}
         </div>
       )}
       {hint && <small>{hint}</small>}
@@ -2080,7 +2107,7 @@ const ModelStatusSection = memo(function ModelStatusSection({ modelHealth = {}, 
         <div><strong>{title}</strong><p>{message}</p></div>
       </div>
       <div className="model-health-grid">
-        <div className="model-health-card"><small>GGUF model file</small><strong>{modelHealth.modelExists ? "Available" : "Missing"}</strong><span>{size(modelHealth.modelSizeBytes)}{modelHealth.modelPath ? ` · ${modelHealth.modelPath.split(/[\\/]/).pop()}` : ""}</span></div>
+        <div className="model-health-card"><small>GGUF model file</small><strong>{modelHealth.modelExists ? (modelHealth.modelInspection?.architecture ? `${modelHealth.modelInspection.architecture} · Available` : "Available") : "Missing"}</strong><span>{modelHealth.modelInspection?.contextLength ? `${modelHealth.modelInspection.contextLength} ctx · ` : ""}{size(modelHealth.modelSizeBytes)}{modelHealth.modelPath ? ` · ${modelHealth.modelPath.split(/[\\/]/).pop()}` : ""}</span></div>
         <div className="model-health-card"><small>Chat engine</small><strong>{modelHealth.runtimePresent ? (modelHealth.backend === "lmstudio" ? "LM Studio selected" : "Offline GPT engine available") : "Not found"}</strong><span>{modelHealth.backend === "lmstudio" ? (modelHealth.serverRunning ? "External local engine active" : "External local engine starts when needed") : (modelHealth.gpuBackendPresent ? "Bundled CUDA runtime · automatic placement" : "Bundled runtime files are incomplete")}</span></div>
         <div className="model-health-card"><small>Free system RAM</small><strong>{size(modelHealth.freeRamBytes)}</strong><span>of {size(modelHealth.totalRamBytes)} · {size(modelHealth.pagefileAvailableBytes)} paging headroom</span></div>
         <div className="model-health-card"><small>Free GPU memory</small><strong>{size(modelHealth.freeGpuBytes)}</strong><span>GPT-OSS, Qwen3-VL, and FLUX release the GPU before the next model loads.</span></div>
@@ -2171,17 +2198,37 @@ const SettingsDialog = memo(function SettingsDialog({ bridge, open, setOpen, the
     setSaved(true);
     window.setTimeout(() => { setSaved(false); setOpen(false); }, 500);
   };
-  const field = (label, name, extra = {}) => (
-    <SettingField
-      key={name}
-      label={label}
-      name={name}
-      value={settings[name]}
-      onChange={update}
-      onBrowse={browse}
-      {...extra}
-    />
-  );
+  const [inspectedInfo, setInspectedInfo] = useState({});
+  const inspectModelFile = useCallback(async (key, path) => {
+    if (!path) return;
+    try {
+      const raw = await call(bridge, "inspectModel", path);
+      const res = typeof raw === "string" ? parse(raw, null) : raw;
+      if (res?.ok && res.result) {
+        setInspectedInfo((prev) => ({ ...prev, [key]: res.result }));
+      } else {
+        setInspectedInfo((prev) => ({ ...prev, [key]: { error: res?.error || "Inspection failed" } }));
+      }
+    } catch (err) {
+      setInspectedInfo((prev) => ({ ...prev, [key]: { error: String(err) } }));
+    }
+  }, [bridge]);
+  const field = (label, name, extra = {}) => {
+    const isGguf = name.endsWith("gguf") || name.includes("model");
+    return (
+      <SettingField
+        key={name}
+        label={label}
+        name={name}
+        value={settings[name]}
+        onChange={update}
+        onBrowse={browse}
+        onInspect={isGguf ? inspectModelFile : null}
+        inspection={inspectedInfo[name]}
+        {...extra}
+      />
+    );
+  };
   return <Dialog.Root open={open} onOpenChange={(next) => { if (!next) { setTheme(themeAtOpen.current); writeTheme(themeAtOpen.current); } setOpen(next); }}>
     <Dialog.Portal><Dialog.Backdrop className="dialog-overlay" />
       <Dialog.Popup className="settings-dialog">

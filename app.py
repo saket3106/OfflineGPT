@@ -5279,6 +5279,16 @@ class DesktopBridge(QObject):
     def getSettings(self):return json.dumps(load_config(),ensure_ascii=False)
     @Slot(result=str)
     def getModelStatus(self):return json.dumps(self.backend.engines.chat_status(),ensure_ascii=False)
+    @Slot(str,result=str)
+    def inspectModel(self,path):
+        try:
+            import model_inspection
+            target=resolve_path(path) if path else None
+            if not target or not target.is_file():return json.dumps({'ok':False,'error':f'File not found: {path}'},ensure_ascii=False)
+            res=model_inspection.inspect_gguf(target)
+            return json.dumps({'ok':True,'result':res},ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({'ok':False,'error':str(exc)},ensure_ascii=False)
     @Slot()
     def testModel(self):self.backend.test_chat_model()
     @Slot()
