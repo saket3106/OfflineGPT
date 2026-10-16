@@ -59,6 +59,7 @@ def materialize(receipt,expected,destination,monitor=lambda:None,frontend=None,a
             if canonical!=name or canonical.casefold() in seen:raise Error('Noncanonical/colliding dependency path')
             seen.add(canonical.casefold());role,rel=name.split('/',1)
             if role not in roots or rel.endswith(('.pyc','.pyo')) or '__pycache__' in Path(rel).parts:raise Error('Unapproved cached executable input')
+            if os.name=='nt' and Path(rel).suffix.lower() in {'.exe','.com'} and len(str(targets[role]/rel))>=260:raise Error('Windows executable launch path is too long; use a shorter private workspace')
             if Path(rel).suffix.lower() in {'.gguf','.safetensors'}:raise Error('Model weights cannot enter build snapshots')
             if Path(rel).name in {'sitecustomize.py','usercustomize.py'}:raise Error('Unexpected Python startup customization')
             if rel.endswith('.pth') and (allowed_pth or {}).get(name)!=h:raise Error('Unreviewed .pth input; never process it silently')

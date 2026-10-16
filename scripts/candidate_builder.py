@@ -181,7 +181,10 @@ class Builder:
         if actual!=job['graph'] or expected!=job['buildKey']:raise Error('Queued immutable input graph changed')
         self.accepted(job['sourceCommit']);resources=Resources();resources.preflight();resources.incidents()
         self.record(path,'PREPARING',attempts=job['attempts']+1,started=time.time())
-        attempt=path/'attempts'/uuid.uuid4().hex;attempt.mkdir(parents=True)
+        # CreateProcessW/Node still reject some >MAX_PATH executable names
+        # even when filesystem long paths are enabled. Journals retain the
+        # exact attempt path; do not nest physical work under the 64-byte key.
+        attempt=inputs.ordinary(self.root/'w'/uuid.uuid4().hex);attempt.mkdir(parents=True)
         self.record(path,'MATERIALIZING',attempt=str(attempt),attempts=job['attempts']+1,started=time.time())
         def monitor():
             if (path/'cancel.json').exists():raise Error('Build cancellation requested')

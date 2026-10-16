@@ -37,4 +37,8 @@ class MaterializeTests(unittest.TestCase):
     def test_real_case_collision_is_rejected(self):
         self.files['frontendDependencies/PACKAGE/a.js']=self.files['frontendDependencies/package/a.js'];self.save()
         with self.assertRaisesRegex(m.Error,'colliding'):self.run_copy()
+    @unittest.skipUnless(__import__('os').name=='nt','Windows executable path boundary')
+    def test_long_executable_launch_path_is_rejected_before_execution(self):
+        self.dest=self.root/('a'*120)/('b'*120)/'dependencies'
+        with self.assertRaisesRegex(m.Error,'launch path'):self.run_copy()
 if __name__=='__main__':unittest.main()
