@@ -29,7 +29,7 @@ def run(path):
     builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
     try:
         controller=builder.Builder(roots['configPath']);discovery=controller.discover();result=controller.once()
-        receipt.update(status=result['status'],buildKey=result.get('buildKey'),actualBuildRun=result.get('actualBuildRun',False),discoveryCount=len(discovery),returnCode=0 if result['status'] in {'IDLE','PAUSED','COMPLETE'} else 2)
+        receipt.update(status=result['status'],buildKey=result.get('buildKey'),actualBuildRun=result.get('actualBuildRun',False),discoveryCount=len(discovery),returnCode=0 if result['status'] in {'IDLE','PAUSED','COMPLETE','WAITING_RESOURCE','WAITING_NETWORK'} else 2)
     except (builder.Error,builder.auto.Error,OSError,ValueError,KeyError) as error:receipt.update(status='STOPPED',reason=str(error),returnCode=2)
     receipt['elapsedSeconds']=time.monotonic()-started
     builder.save(roots['privateRoot']/'last-worker-run.json',receipt)

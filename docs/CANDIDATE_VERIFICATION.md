@@ -134,6 +134,9 @@ Interrupted promotion rechecks full payload and receipt identities before
 accepting it. Unknown pointer changes require reconciliation, never guessing
 success from file existence. Discovery retries persist with backoff and stop
 after eight failures without blocking other queued jobs or source publication.
+Preflight resource deferrals wait five minutes without consuming a build
+attempt or closing user apps. Preflight network retries have an eight-failure
+attention boundary; actual interrupted/failed build attempts remain explicit.
 
 Permanent Windows task deployment and actual executor acceptance must be
 recorded separately after accepted exact-source CI. Tests using disposable Git

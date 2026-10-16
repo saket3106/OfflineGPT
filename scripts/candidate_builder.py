@@ -13,6 +13,7 @@ def sibling(name):
     m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 auto=sibling('auto_sync');inputs=sibling('candidate_inputs');material=sibling('build_materialize');process=sibling('build_process')
 Error=inputs.CandidateError
+class Deferred(Error):pass
 SCRIPTS={'candidate_runner.py','candidate_builder.py','candidate_inputs.py','candidate_smoke.py','build_materialize.py','build_bootstrap.py','build_process.py','auto_sync.py','sync_source.py','audit_repository.py'}
 ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','PROMOTING'}
 TERMINAL={'COMPLETE','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUIRED'}
@@ -37,7 +38,7 @@ class Resources:
         class MEMORY(ctypes.Structure):_fields_=[('length',ctypes.c_ulong),('load',ctypes.c_ulong)]+[(n,ctypes.c_ulonglong) for n in ('total','available','pageTotal','pageAvailable','virtualTotal','virtualAvailable','extended')]
         state=MEMORY();state.length=ctypes.sizeof(state)
         if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(state)):raise Error('Memory instrumentation unavailable')
-        if state.available<minimum or state.pageAvailable<512*1024**2:raise Error('Build stopped before memory headroom fell below its safety limit')
+        if state.available<minimum or state.pageAvailable<512*1024**2:raise (Deferred if minimum>512*1024**2 else Error)('Build stopped before memory headroom fell below its safety limit')
         if time.monotonic()-self.last>=2:
             self.last=time.monotonic()
             nvidia=Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/nvidia-smi.exe'
@@ -47,10 +48,11 @@ class Resources:
             if gpu>=82:raise Error('GPU reached the conservative 82 C stop limit')
     def preflight(self):
         self.check(2*1024**3)
-        if self.samples[-1]['gpuC']>=70:raise Error('Defer build until GPU cool-start is below 70 C')
+        if self.samples[-1]['gpuC']>=70:raise Deferred('Defer build until GPU cool-start is below 70 C')
         script="$ErrorActionPreference='Stop';@(Get-Process -Name 'Offline GPT','llama-server','sd-cli','whisper-server' -ErrorAction SilentlyContinue).Count"
         r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=5)
-        if r.returncode or int(r.stdout.strip())!=0:raise Error('User app/model is active; defer without closing it')
+        if r.returncode:raise Error('Application-process preflight is unavailable')
+        if int(r.stdout.strip())!=0:raise Deferred('User app/model is active; defer without closing it')
     def incidents(self):
         stamp=datetime.datetime.fromtimestamp(self.started,datetime.timezone.utc).isoformat()
         script="$ErrorActionPreference='Stop';try{$rows=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=[datetime]'"+stamp+"';Level=1,2,3} -ErrorAction Stop)}catch{if($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'){$rows=@()}else{throw}};@($rows|Where-Object {$_.ProviderName -match 'WHEA|nvlddmkm|^Display$'}).Count"
@@ -176,8 +178,8 @@ class Builder:
         actual=inputs.inputs(self.manager.repo,job['sourceCommit'],self.manager.cfg['git'])
         expected=inputs.digest({'application':actual['applicationInputSha256'],'environment':self.environment['environmentSha256'],'adapters':self.adapters,'profile':self.profileHash})
         if actual!=job['graph'] or expected!=job['buildKey']:raise Error('Queued immutable input graph changed')
-        self.record(path,'PREPARING',attempts=job['attempts']+1,started=time.time())
         self.accepted(job['sourceCommit']);resources=Resources();resources.preflight();resources.incidents()
+        self.record(path,'PREPARING',attempts=job['attempts']+1,started=time.time())
         attempt=path/'attempts'/uuid.uuid4().hex;attempt.mkdir(parents=True)
         self.record(path,'MATERIALIZING',attempt=str(attempt),attempts=job['attempts']+1,started=time.time())
         def monitor():
@@ -215,16 +217,21 @@ class Builder:
             for path in (self.root/'jobs').iterdir():
                 _,value=self.job(path.name)
                 if value['status'] in ACTIVE:return self.record(path,'RECOVERY_REQUIRED',reason='Interrupted build phase; retain outputs and explicitly recover/retry')
-                if value['status']=='QUEUED':jobs.append((value['created'],path,value))
+                if value['status']=='QUEUED' or (value['status'] in {'WAITING_RESOURCE','WAITING_NETWORK'} and value.get('retryAfter',0)<=time.time()):jobs.append((value['created'],path,value))
             if not jobs:return {'status':'IDLE'}
             _,path,job=min(jobs,key=lambda row:row[0])
             try:return self.execute(path,job)
+            except Deferred as error:return self.record(path,'WAITING_RESOURCE',reason=str(error),retryAfter=time.time()+300)
+            except auto.NetworkError as error:
+                current=json.loads((path/'job.json').read_text());count=current.get('networkRetries',0)+1
+                if current['status'] not in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'}:return self.record(path,'FAILED',reason=str(error))
+                return self.record(path,'WAITING_NETWORK' if count<8 else 'BLOCKED',reason=str(error),networkRetries=count,retryAfter=time.time()+min(1800,30*2**count))
             except (Error,auto.Error,process.ProcessError,material.Error,OSError,ValueError,subprocess.SubprocessError) as error:
                 current=json.loads((path/'job.json').read_text());status='RECOVERY_REQUIRED' if current['status']=='PROMOTING' else 'CANCELLED' if (path/'cancel.json').exists() else 'FAILED'
                 return self.record(path,status,reason=str(error))
     def cancel(self,key):
         path,job=self.job(key);save(path/'cancel.json',{'requested':time.time()})
-        if job['status']=='QUEUED':return self.record(path,'CANCELLED',reason='Cancelled before execution')
+        if job['status'] in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'}:return self.record(path,'CANCELLED',reason='Cancelled before execution')
         return {'status':'CANCELLATION_REQUESTED','buildKey':key}
     def retry(self,key):
         with auto.exclusive(self.lock):

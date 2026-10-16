@@ -33,7 +33,8 @@ class ProcessTests(unittest.TestCase):
     def test_controller_crash_closes_job_and_kills_child(self):
         marker=self.root/'owned.pid';worker=self.root/'worker.py'
         worker.write_text('import importlib.util,os,sys\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location("p",'+repr(str(Path(process.__file__)))+');p=importlib.util.module_from_spec(s);s.loader.exec_module(p)\np.run([sys.executable,"-I","-S","-c",'+repr('import os,time;from pathlib import Path;Path('+repr(str(marker))+').write_text(str(os.getpid()));time.sleep(20)')+'],Path('+repr(str(self.root))+'),dict(os.environ),Path('+repr(str(self.root/'crash.log'))+'),25)\n')
-        child=subprocess.Popen([sys.executable,'-I','-S',str(worker)],env=self.env)
+        worker.write_text(worker.read_text().replace('import importlib.util,os,sys\n','import importlib.util,os,sys\nassert sys.dont_write_bytecode, "Explicit -B is required under isolated Python"\n'))
+        child=subprocess.Popen([sys.executable,'-I','-S','-B',str(worker)],env=self.env)
         try:
             end=time.monotonic()+8
             while not marker.exists() and time.monotonic()<end:time.sleep(.05)

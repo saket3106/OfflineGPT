@@ -89,6 +89,18 @@ class BuilderTests(unittest.TestCase):
         b.save(batch/'batch.json',{'status':'COMPLETE','candidateBuild':'QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER','commit':self.commit})
         self.assertEqual(len(self.builder.discover()),1)
         with patch.object(self.builder,'enqueue',side_effect=AssertionError('Must not rediscover')):self.assertEqual(self.builder.discover(),[])
+    def test_resource_deferral_preserves_queue_and_attempt_budget(self):
+        job=self.enqueue()
+        with patch.object(b.Resources,'preflight',side_effect=b.Deferred('Synthetic active user app')):
+            result=self.builder.once();self.assertEqual(result['status'],'WAITING_RESOURCE');self.assertEqual(result['attempts'],0)
+        self.assertEqual(self.builder.once()['status'],'IDLE');self.assertEqual(self.builder.pointer.read_bytes(),self.original_pointer)
+        self.assertEqual(self.builder.cancel(job['buildKey'])['status'],'CANCELLED')
+    def test_preflight_network_retry_is_bounded_without_consuming_build_attempts(self):
+        job=self.enqueue();path,_=self.builder.job(job['buildKey'])
+        with patch.object(self.builder,'accepted',side_effect=b.auto.NetworkError('Synthetic offline state')):
+            for i in range(8):
+                with patch.object(b.time,'time',return_value=1000000+i*10000):result=self.builder.once()
+        self.assertEqual(result['status'],'BLOCKED');self.assertEqual(result['attempts'],0);self.assertEqual(result['networkRetries'],8)
 
 class AcceptanceTests(unittest.TestCase):
     def setUp(self):
