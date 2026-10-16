@@ -44,6 +44,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_candidate_runner.py -v
       - name: Journaled candidate worker upgrades and artifact reuse (synthetic task)
         run: python -m unittest discover -s tests -p test_candidate_upgrade.py -v
+      - name: Evidence-gated milestone documentation (synthetic receipts, real disposable Git)
+        run: python -m unittest discover -s tests -p test_milestone_docs.py -v
       - name: Actual Git index, privacy and completeness
         run: python scripts/sync_source.py precommit --report-dir "$env:RUNNER_TEMP/offlinegpt-publication"
       - name: Source-only inventory

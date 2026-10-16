@@ -118,6 +118,9 @@ Candidate build orchestration is a separate queued workstream; the manager
 records its pending state and does not pretend an EXE was rebuilt. Full native
 provenance and redistribution licensing still block downloadable binaries.
 Milestone documentation requires additional independent acceptance evidence.
+See [MILESTONE_DOCUMENTATION.md](MILESTONE_DOCUMENTATION.md) for the separate
+evidence-gated proposal and recoverable documentation-write protocol. Source CI
+or ledger counts alone never certify an application milestone.
 Power-loss durability, arbitrary malicious concurrent writers and an OS-enforced
 sandbox for all test subprocesses are not certified. Review any test timeout for
 owned leftover processes before continuing. Private receipts are tamper-evident

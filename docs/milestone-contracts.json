@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "id": "isolated-candidate-build-v1",
+      "kind": "engineering_infrastructure",
+      "title": "Isolated Windows candidate build pipeline",
+      "summary": "Accepted source identities can produce privately validated Qt and React shell candidates through a recoverable build queue.",
+      "limitation": "This verifies development infrastructure only. Native model provisioning, inference, licensing and release acceptance remain separate gates.",
+      "inputs": ["scripts/candidate_builder.py", "scripts/build_process.py", "scripts/build_materialize.py", "scripts/candidate_runner.py", "scripts/candidate_upgrade.py"],
+      "evidenceKind": "windows_integration",
+      "checks": ["immutable-source", "actual-windows-build", "full-payload", "embedded-source", "qt-react-bridge", "isolated-sqlite", "shutdown-cleanup", "scheduled-worker", "recovery", "production-preserved"],
+      "minimumImprovement": 0
+    },
+    {
+      "id": "native-semantic-reasoning-v1",
+      "kind": "application_capability",
+      "title": "Native reasoning acceptance",
+      "summary": "Independent native evaluation verified the defined transaction and symbolic reasoning criteria on the accepted source.",
+      "limitation": "Acceptance is limited to the independently reviewed criteria and does not guarantee arbitrary answer correctness.",
+      "inputs": ["app.py", "intelligence.py", "validators.py", "integrated_runtime.py", "assistant_system_prompt.md"],
+      "evidenceKind": "native_semantic",
+      "checks": ["authentic-native-output", "savepoint-write-scope", "symbolic-invariants", "independent-correctness", "resource-gates"],
+      "minimumImprovement": 0
+    }
+  ]
+}
