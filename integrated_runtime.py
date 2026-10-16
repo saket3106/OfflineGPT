@@ -21,6 +21,7 @@ import secrets
 import logging
 from contextlib import contextmanager
 from pathlib import Path
+from runtime_contracts import ExistingTextAdapter
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 _runtime_logger = logging.getLogger("offline_gpt.runtime")
@@ -1987,19 +1988,13 @@ class EngineManager:
                 self._current_generation_id += 1
             try:
                 self.ensure_chat(progress, cancel_event=cancel_event)
-                if self.cfg.get("chat_backend", "bundled") == "lmstudio":
-                    result = self.lm_runtime.complete(
-                        messages, int(max_tokens), float(temperature), cancel_event, on_token, progress,
-                        connection_callback=connection_callback, top_p=top_p, allowed_tools=allowed_tools, reasoning_effort=reasoning_effort or "low",
-                    )
-                else:
-                    if not self.runtime or not self.runtime.ready:
-                        raise RuntimeError("Offline GPT's bundled GPT-OSS engine stopped before the response began.")
-                    result = self.runtime.complete(
-                        messages, self.runtime.context, int(max_tokens),
-                        float(temperature), cancel_event, on_token, progress, self.chat_memory_profile,
-                        connection_callback=connection_callback, top_p=top_p, allowed_tools=allowed_tools, reasoning_effort=reasoning_effort,
-                    )
+                adapter = ExistingTextAdapter(self, self.cfg.get("chat_backend", "bundled"))
+                result = adapter.complete(
+                    messages, max_tokens=max_tokens, temperature=temperature,
+                    cancel_event=cancel_event, on_token=on_token, progress=progress,
+                    connection_callback=connection_callback, top_p=top_p,
+                    allowed_tools=allowed_tools, reasoning_effort=reasoning_effort,
+                )
                 self.record_chat_test("passed", "The selected local GPT-OSS engine returned a complete response.", result)
                 return result
             except Exception as exc:

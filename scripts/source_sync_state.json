@@ -170,8 +170,8 @@
       "repository": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67"
     },
     "integrated_runtime.py": {
-      "source": "467f3ee5f97008bad09fff54291552bb0937a3cf9a2825cf4b26f77ad6b8606e",
-      "repository": "467f3ee5f97008bad09fff54291552bb0937a3cf9a2825cf4b26f77ad6b8606e"
+      "source": "da0c1daab00a6f1eee841ab68fc64d03e5e7e8867fb9982be4d3cdc3267e1ab5",
+      "repository": "da0c1daab00a6f1eee841ab68fc64d03e5e7e8867fb9982be4d3cdc3267e1ab5"
     },
     "intelligence.py": {
       "source": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3",
@@ -332,6 +332,18 @@
     "docs/DEVELOPMENT_PROTOCOL.md": {
       "source": "1037f6a19f622308b4780a4e97cc3da0ed97715631bcba2f2f76f798d499b2c0",
       "repository": "1037f6a19f622308b4780a4e97cc3da0ed97715631bcba2f2f76f798d499b2c0"
+    },
+    "docs/RUNTIME_COMPATIBILITY.md": {
+      "source": "6cf6142c52470b915889fefb43a549aae3c93f67a63e03d39ea29411ab9a5556",
+      "repository": "6cf6142c52470b915889fefb43a549aae3c93f67a63e03d39ea29411ab9a5556"
+    },
+    "runtime_contracts.py": {
+      "source": "7686e672a3801cbb256d7dfb65c2ee8ed6d5470a846e41f02dd74da4c1163a1c",
+      "repository": "7686e672a3801cbb256d7dfb65c2ee8ed6d5470a846e41f02dd74da4c1163a1c"
+    },
+    "tests/test_runtime_contracts.py": {
+      "source": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2",
+      "repository": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2"
     }
   },
   "protected": {
