@@ -54,8 +54,14 @@ class FrozenRunnerTests(unittest.TestCase):
         with patch.object(subprocess,'run',side_effect=subprocess.TimeoutExpired('synthetic',110)):result=runner.run(self.path)
         self.assertEqual(result['status'],'TIMEOUT');self.assertEqual(result['returnCode'],2)
         self.assertFalse(list(self.private.glob('.source-bytecode-*')))
-    def test_real_poisoned_timestamp_cache_does_not_override_frozen_source(self):
-        helper=self.runtime/'scripts/sync_source.py';helper.write_text("VALUE = 'evil'\n");stamp=helper.stat();py_compile.compile(str(helper),doraise=True)
+    def poisoned_timestamp_probe(self):
+        helper=self.runtime/'scripts/sync_source.py';helper.write_text("VALUE = 'evil'\n");stamp=helper.stat()
+        # The counterexample child has -I/-B but no cache-prefix override.
+        # py_compile otherwise follows this parent's sys.pycache_prefix and
+        # silently puts the attack fixture somewhere that child never reads.
+        adjacent=helper.parent/'__pycache__'/(helper.stem+'.'+sys.implementation.cache_tag+'.pyc')
+        compiled=py_compile.compile(str(helper),cfile=str(adjacent),doraise=True)
+        self.assertEqual(Path(compiled),adjacent);self.assertTrue(adjacent.is_file())
         helper.write_text("VALUE = 'good'\n");os.utime(helper,ns=(stamp.st_atime_ns,stamp.st_mtime_ns))
         entry=self.runtime/'scripts/auto_sync.py'
         entry.write_text("import importlib.util,json\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('probe',Path(__file__).with_name('sync_source.py'))\nx=importlib.util.module_from_spec(spec);spec.loader.exec_module(x)\nprint(json.dumps({'status':'IDLE' if x.VALUE=='good' else 'RECOVERY_REQUIRED'}))\n")
@@ -66,6 +72,11 @@ class FrozenRunnerTests(unittest.TestCase):
         self.assertEqual(json.loads(old.stdout)['status'],'RECOVERY_REQUIRED')
         result=runner.run(self.path);self.assertEqual(result['status'],'IDLE');self.assertEqual(result['returnCode'],0)
         self.assertFalse(list(self.private.glob('.source-bytecode-*')))
+    def test_real_poisoned_timestamp_cache_does_not_override_frozen_source(self):
+        self.poisoned_timestamp_probe()
+    def test_cache_counterexample_is_independent_of_parent_cache_namespace(self):
+        with patch.object(sys,'pycache_prefix',str(self.root/'redirected-parent-cache')):
+            self.poisoned_timestamp_probe()
     def test_invalid_interpreter_identity_blocks(self):
         self.manifest['pythonSha256']='0'*64;self.save()
         with self.assertRaises(runner.RunnerError):runner.validate(self.path)
