@@ -25,7 +25,7 @@ def module_at(path,name):
     s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
 class Upgrade:
     def __init__(self,manifest,task=None,*,fixture=False):
-        self.path=Path(manifest);self.old,self.paths=r.validate(self.path);self.root=self.paths['privateRoot'];self.directory=self.root/'runtime-upgrades';self.directory.mkdir(exist_ok=True)
+        self.path=r.ordinary(Path(manifest));self.old,self.paths=r.validate(self.path);self.root=self.paths['privateRoot'];self.directory=self.root/'runtime-upgrades';self.directory.mkdir(exist_ok=True)
         self.fixture=fixture
         if fixture and (task is None or isinstance(task,base.WindowsTask)):raise Error('Fixtures require a disposable task adapter')
         self.task=task or base.WindowsTask('OfflineGPT-VerifiedCandidateBuild')

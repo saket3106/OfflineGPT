@@ -8,7 +8,7 @@ from test_runtime_upgrade import Task
 s=importlib.util.spec_from_file_location('candidate_upgrade_tests',Path(__file__).resolve().parents[1]/'scripts/candidate_upgrade.py');u=importlib.util.module_from_spec(s);s.loader.exec_module(u)
 class UpgradeTests(unittest.TestCase):
     def setUp(self):
-        case=queue_tests.BuilderTests('runTest');case.setUp();self.addCleanup(case.doCleanups);self.case=case;self.builder=case.builder;self.root=case.private;self.old_commit=case.commit
+        case=queue_tests.BuilderTests('runTest');case.setUp();self.addCleanup(case.doCleanups);self.case=case;self.builder=case.builder;self.root=case.private.resolve();self.old_commit=case.commit
         job=case.enqueue();path,_=self.builder.job(job['buildKey']);graph=job['graph'];package=Path(case.cfg['baselinePackage']);exe=b.inputs.sha(package/'Offline GPT.exe')
         payload=self.root/'fixture-payload.json';b.save(payload,{'Offline GPT.exe':exe});verification=self.root/'fixture-verification.json';b.save(verification,{**graph,'compiledModuleMatches':{'app.py':True},'candidateSha256':exe,'fixtureOnly':True})
         smoke=self.root/'fixture-smoke.json';b.save(smoke,{'status':'PASSED','remainingOwnedPids':[],'modelRequestsIssued':0,'exeSha256':exe,'checks':dict.fromkeys(b.SMOKE_CHECKS,True),'fixtureOnly':True})
@@ -87,4 +87,7 @@ class UpgradeTests(unittest.TestCase):
         marker=self.root/'must-not-exist';(directory/'candidate_builder.py').write_text('from pathlib import Path\nPath('+repr(str(marker))+').write_text("unreviewed import")\n')
         result=subprocess.run([sys.executable,'-I','-S','-B',str(directory/'candidate_upgrade.py'),'--manifest',str(self.active),'prepare'],capture_output=True,timeout=5)
         self.assertNotEqual(result.returncode,0);self.assertFalse(marker.exists());self.assertEqual(self.active.read_bytes(),self.original)
+    def test_noncanonical_manifest_argument_resolves_to_exact_registered_action(self):
+        alias=self.root/'..'/self.root.name/'active-worker.json';upgrade=u.Upgrade(alias,self.task,fixture=True)
+        self.assertEqual(upgrade.path,self.active);self.assertEqual(upgrade.action(upgrade.old),self.task.current);self.assertEqual(upgrade.prepare()['status'],'PREPARED')
 if __name__=='__main__':unittest.main()
