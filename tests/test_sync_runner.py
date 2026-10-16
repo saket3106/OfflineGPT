@@ -58,7 +58,7 @@ class FrozenRunnerTests(unittest.TestCase):
         with self.assertRaises(runner.RunnerError):runner.validate(self.path)
 
     def test_malformed_or_unknown_output_never_reports_success(self):
-        for output in (b'not JSON',b'{"status":"UNKNOWN"}',b'{"status":"RECOVERY_REQUIRED"}'):
+        for output in (b'not JSON',b'[]',b'null',b'"IDLE"',b'{"status":[]}',b'{"status":"UNKNOWN"}',b'{"status":"RECOVERY_REQUIRED"}',b'{"status":"CI_TIMED_OUT"}'):
             with patch.object(subprocess,'run',return_value=subprocess.CompletedProcess([],0,output,b'')):result=runner.run(self.path)
             self.assertEqual(result['returnCode'],2);self.assertTrue(result['requiresReview'])
 

@@ -104,6 +104,49 @@ class AutoSyncTests(unittest.TestCase):
         for phase in ('APPLYING','STAGING','COMMITTING'):
             self.manager.record(path,phase);self.assertEqual(self.manager.once()['status'],'RECOVERY_REQUIRED')
         self.assertEqual((self.repo/'app.py').read_text(),'VALUE=1\n')
+    def test_ci_clock_survives_polls_and_expired_batch_releases_sibling(self):
+        first=self.accept()
+        with patch.object(self.manager,'ci',return_value={'status':'queued'}):
+            waiting=self.manager.once();started=waiting['ciWaitStarted']
+            self.assertEqual(self.manager.once()['ciWaitStarted'],started)
+        count=self.g('rev-list','--count','HEAD')
+        # Prepare a second, independently reviewed batch against the now clean
+        # committed tree, while the first one waits for CI.
+        (self.source/'app.py').write_text('VALUE=3\n')
+        second=self.manager.prepare('Second synthetic maintenance batch');self.accept(second)
+        with patch.object(auto.time,'time',return_value=started+auto.CI_WAIT_SECONDS),patch.object(self.manager,'ci') as ci:
+            result=self.manager.once()
+        ci.assert_not_called();self.assertEqual(result['status'],'CI_TIMED_OUT')
+        self.assertEqual(self.g('rev-list','--count','HEAD'),count)
+        result=self.manager.once();self.assertEqual(result['status'],'COMPLETE');self.assertEqual(result['id'],second['id'])
+        self.assertEqual(sync.load(self.batch_path(first)/'batch.json')['status'],'CI_TIMED_OUT')
+    def test_ci_expiry_applies_during_network_backoff(self):
+        batch=self.accept()
+        with patch.object(self.manager,'ci',return_value={'status':'pending'}):waiting=self.manager.once()
+        start=waiting['ciWaitStarted']
+        self.manager.record(self.batch_path(batch),'OFFLINE_RETRY',resumeStatus='CI_PENDING',retryAfter=start+10000)
+        with patch.object(auto.time,'time',return_value=start+auto.CI_WAIT_SECONDS):result=self.manager.once()
+        self.assertEqual(result['status'],'CI_TIMED_OUT')
+    def test_legacy_ci_clock_migrates_once_and_corrupt_clock_requires_review(self):
+        batch=self.accept()
+        with patch.object(self.manager,'ci',return_value={'status':'pending'}):waiting=self.manager.once()
+        path=self.batch_path(batch);waiting.pop('ciWaitStarted');self.manager.write(path/'batch.json',waiting)
+        with patch.object(self.manager,'ci',return_value={'status':'queued'}):migrated=self.manager.once()
+        self.assertEqual(migrated['ciWaitStarted'],waiting['remoteVerified'])
+        for invalid in (None,'yesterday',float('nan'),float('inf'),auto.time.time()+100):
+            self.manager.record(path,'CI_PENDING',ciWaitStarted=invalid)
+            self.assertEqual(self.manager.once()['status'],'RECOVERY_REQUIRED')
+    def test_ci_success_after_deadline_is_not_accepted(self):
+        batch=self.accept()
+        with patch.object(self.manager,'ci',return_value={'status':'pending'}):waiting=self.manager.once()
+        clock=[waiting['ciWaitStarted']+auto.CI_WAIT_SECONDS-1]
+        def delayed(_):
+            # CI observation can finish after the deadline, even if its result
+            # is successful. Runtime expiry still owns the decision.
+            clock[0]+=2
+            return {'status':'completed','conclusion':'success'}
+        with patch.object(self.manager,'ci',side_effect=delayed),patch.object(auto.time,'time',side_effect=lambda:clock[0]):
+            self.assertEqual(self.manager.once()['status'],'CI_TIMED_OUT')
     def test_os_exclusive_lock_and_pause(self):
         with auto.exclusive(self.manager.lock):
             with self.assertRaises(auto.Error):self.manager.once()

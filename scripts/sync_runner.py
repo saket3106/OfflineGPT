@@ -57,6 +57,7 @@ def run(manifest_path):
         receipt.update(returnCode=child.returncode,stdoutSha256=hashlib.sha256(child.stdout).hexdigest(),stderrSha256=hashlib.sha256(child.stderr).hexdigest())
         if child.returncode==0:
             output=json.loads(child.stdout)
+            if not isinstance(output,dict) or not isinstance(output.get('status'),str):raise RunnerError('Expected a controller status object')
             receipt.update(status=output.get('status','UNKNOWN'),batch=output.get('id'),sourceCommit=output.get('commit'))
             if receipt['status'] not in {'IDLE','PAUSED','WAITING_RETRY','COMPLETE','CI_PENDING','OFFLINE_RETRY'}:
                 receipt.update(returnCode=2,requiresReview=True)

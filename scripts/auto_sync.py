@@ -9,6 +9,7 @@ import argparse
 from contextlib import contextmanager
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -22,7 +23,10 @@ spec=importlib.util.spec_from_file_location('sync_foundation',Path(__file__).wit
 sync=importlib.util.module_from_spec(spec);spec.loader.exec_module(sync)
 Error=sync.SyncError
 class NetworkError(Error):pass
-TERMINAL={'COMPLETE','NO_CHANGES','BLOCKED','TEST_FAILED','CI_FAILED','RECOVERY_REQUIRED','STALE'}
+TERMINAL={'COMPLETE','NO_CHANGES','BLOCKED','TEST_FAILED','CI_FAILED','CI_TIMED_OUT','RECOVERY_REQUIRED','STALE'}
+# The source workflow itself is limited to ten minutes. Allow queue/network
+# headroom, but never hold later accepted batches indefinitely.
+CI_WAIT_SECONDS=30*60
 
 @contextmanager
 def exclusive(path):
@@ -211,8 +215,23 @@ class Manager:
         runs=[r for r in payload.get('workflow_runs',[]) if r.get('head_sha')==commit and r.get('head_branch')==self.cfg['branch'] and r.get('path')=='.github/workflows/source-safety.yml' and r.get('event')=='push']
         if not runs:return {'status':'pending','reason':'No matching push workflow observed'}
         run=max(runs,key=lambda r:r['id']);return {k:run.get(k) for k in ('id','status','conclusion','html_url','head_sha')}
+    def ci_expiry(self,path,batch):
+        phase=batch.get('resumeStatus') if batch['status']=='OFFLINE_RETRY' else batch['status']
+        if phase!='CI_PENDING':return None
+        # Legacy accepted controllers recorded remoteVerified. Migrate that
+        # existing observation once; subsequent polls must not reset the age.
+        started=batch.get('ciWaitStarted',batch.get('remoteVerified'))
+        now=time.time()
+        if type(started) not in (int,float) or not math.isfinite(started) or started>now:
+            return self.record(path,'RECOVERY_REQUIRED',reason='Missing/invalid CI wait clock; inspect journal before resuming')
+        if now-started>=CI_WAIT_SECONDS:
+            return self.record(path,'CI_TIMED_OUT',ciWaitStarted=started,ciWaitSeconds=now-started,
+                reason='Exact remote workflow did not pass within the bounded CI wait; review remote evidence, never infer success')
+        return None
     def publish(self,path):
         batch=sync.load(path/'batch.json')
+        expired=self.ci_expiry(path,batch)
+        if expired:return expired
         if batch['status']=='OFFLINE_RETRY':batch['status']=batch['resumeStatus']
         self.guard(clean=batch['status'] in {'ACCEPTED','COMMITTED','CI_PENDING'})
         if batch['status'] in {'APPLYING','STAGING','COMMITTING'}:
@@ -262,8 +281,11 @@ class Manager:
             if remote!=batch.get('remoteBefore'):return self.record(path,'BLOCKED',reason='Concurrent remote update; never force-pushing')
             self.git('push','origin',commit+':refs/heads/'+self.cfg['branch'])
             if self.remote_head()!=commit:raise Error('Remote did not confirm exact commit')
-        self.record(path,'CI_PENDING',remoteCommit=commit,remoteVerified=time.time(),remotePolicy=remote_policy)
+        started=batch.get('ciWaitStarted',batch.get('remoteVerified',time.time()))
+        current=self.record(path,'CI_PENDING',remoteCommit=commit,remoteVerified=time.time(),remotePolicy=remote_policy,ciWaitStarted=started)
         ci=self.ci(commit)
+        expired=self.ci_expiry(path,current)
+        if expired:return expired
         if ci['status']!='completed':return self.record(path,'CI_PENDING',ci=ci)
         if ci.get('conclusion')!='success':return self.record(path,'CI_FAILED',ci=ci,reason='Matching remote source-safety workflow did not pass')
         app_changed=any(not p.startswith(('tests/','docs/','evals/')) for p in batch.get('stagedPaths',[]) if p not in {sync.STATE,sync.MANIFEST})
@@ -283,6 +305,8 @@ class Manager:
                 self.write(self.state/'discovery.json',discovery)
                 return {'status':'IDLE','publicationRequiresCompletedBatch':True,'pendingActions':len(plan['actions']),'unclassified':plan['unapprovedCandidates']}
             _,path,batch=min(active,key=lambda row:row[0])
+            expired=self.ci_expiry(path,batch)
+            if expired:return expired
             if batch.get('retryAfter',0)>time.time():return {'status':'WAITING_RETRY','batch':path.name}
             try:return self.publish(path)
             except Error as error:

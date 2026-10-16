@@ -98,6 +98,12 @@ Private test logs may contain diagnostic fixture content and must not be synced.
 - Only a matching push-triggered `source-safety.yml` run on the exact branch/SHA
   with successful conclusion marks source publication COMPLETE. CI failure is
   retained, not overridden. No automatic branch promotion is implemented.
+- CI wait has a persistent 30-minute deadline from the first verified push.
+  Polling and offline backoff cannot renew it. Expiry records `CI_TIMED_OUT`,
+  retains the exact commit and journal for review, and releases later accepted
+  batches. Missing, invalid or future clocks require recovery review. Legacy
+  receipts migrate their existing `remoteVerified` observation once. A timeout
+  never counts as accepted CI, and does not roll back already published source.
 - Every transition has an atomic private event receipt. Completed maintenance
   batches enter `CHANGE_LEDGER.json`; README milestone claims are not generated
   from agent descriptions or file counts.
@@ -138,3 +144,39 @@ manifest/task action. Do not hot-reload a partially edited controller. Ordinary
 application-source batches continue through the existing completed-batch queue.
 On a supervisor timeout, retain the journal and inspect any owned child process
 before resuming; this is not a general hostile-code sandbox or power-loss proof.
+
+## Repeatable accepted-runtime upgrades
+
+`scripts/runtime_upgrade.py` updates only the existing user-level source-sync
+task. It is not an OfflineGPT installer and cannot select another Windows task.
+Run it from reviewed repository source after the exact branch commit passes
+remote source-safety CI. Private config and journals remain outside both trees:
+
+```powershell
+python scripts/runtime_upgrade.py --config PRIVATE_CONFIG prepare
+python scripts/runtime_upgrade.py --config PRIVATE_CONFIG apply --upgrade ID
+# Start the existing source-sync task, or wait for its normal trigger.
+python scripts/runtime_upgrade.py --config PRIVATE_CONFIG verify --upgrade ID
+python scripts/runtime_upgrade.py --config PRIVATE_CONFIG status
+```
+
+Preparation freezes only the four committed controller blobs, preserves the old
+pointer and task XML, and records exact old/new action and interpreter identities.
+Apply uses the publication lock, rechecks remote acceptance and all old identities,
+disables the task, switches the pointer/action, verifies preserved settings, then
+restores its previous enabled state. Existing frozen files are never overwritten.
+A running task or changed trigger/principal/settings blocks the operation.
+
+Completion requires a fresh successful receipt from the accepted revision and a
+corresponding successful Windows task run. A direct CLI run or stale receipt is
+insufficient. No user application is terminated. On interruption, inspect the
+private journal before explicitly restoring the old pointer/action:
+
+```powershell
+python scripts/runtime_upgrade.py --config PRIVATE_CONFIG rollback --upgrade ID
+```
+
+Recovery accepts only the recorded old/new identities; unknown pointers/actions
+are retained for manual reconciliation. Failed upgrades never infer success from
+file absence. These journals support process-interruption recovery and explicit
+rollback; they are not a signed trust root or a certification of power-loss safety.
