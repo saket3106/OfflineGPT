@@ -20,6 +20,7 @@ TERMINAL={'COMPLETE','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUI
 def save(path,value):auto.sync.atomic_write(path,json.dumps(value,sort_keys=True,indent=2).encode())
 def digest_file(path):return inputs.sha(path)
 def powershell():return str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
+def powershell_environment():return {**os.environ,'PSModulePath':str(Path(powershell()).parent/'Modules')}
 SMOKE_CHECKS={'devtools_connected','real_webchannel_bridge','composer_visible','chat_store_bridge','synthetic_sqlite_bridge_write','synthetic_sqlite_bridge_read','no_observed_native_model_child','normal_exit','isolated_database_integrity','no_messages_in_fresh_profile','bridge_database_chat_ids_match'}
 def acceptance(smoke,verification,job,exe_hash):
     checks=smoke.get('checks',{});modules=verification.get('compiledModuleMatches',{})
@@ -50,13 +51,13 @@ class Resources:
         self.check(2*1024**3)
         if self.samples[-1]['gpuC']>=70:raise Deferred('Defer build until GPU cool-start is below 70 C')
         script="$ErrorActionPreference='Stop';@(Get-Process -Name 'Offline GPT','llama-server','sd-cli','whisper-server' -ErrorAction SilentlyContinue).Count"
-        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=5)
+        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=5,env=powershell_environment())
         if r.returncode:raise Error('Application-process preflight is unavailable')
         if int(r.stdout.strip())!=0:raise Deferred('User app/model is active; defer without closing it')
     def incidents(self):
         stamp=datetime.datetime.fromtimestamp(self.started,datetime.timezone.utc).isoformat()
         script="$ErrorActionPreference='Stop';try{$rows=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=[datetime]'"+stamp+"';Level=1,2,3} -ErrorAction Stop)}catch{if($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'){$rows=@()}else{throw}};@($rows|Where-Object {$_.ProviderName -match 'WHEA|nvlddmkm|^Display$'}).Count"
-        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=5)
+        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=5,env=powershell_environment())
         if r.returncode or int(r.stdout.strip())!=0:raise Error('Hardware/driver incident or unavailable incident check')
 
 class Builder:

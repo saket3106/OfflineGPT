@@ -13,6 +13,7 @@ def sibling(name):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 inputs=sibling('candidate_inputs');Error=inputs.CandidateError
 def powershell():return str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
+def powershell_environment():return {**os.environ,'PSModulePath':str(Path(powershell()).parent/'Modules')}
 def load(receipt,expected):
     receipt=inputs.ordinary(receipt)
     if inputs.sha(receipt)!=expected:raise Error('Reviewed environment receipt changed')
@@ -33,7 +34,7 @@ def junction(path,target):
     path.parent.mkdir(parents=True,exist_ok=True)
     if os.name=='nt':
         quote=lambda p:"'"+str(p).replace("'","''")+"'"
-        result=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',"$ErrorActionPreference='Stop';New-Item -ItemType Junction -Path "+quote(path)+' -Target '+quote(target)+'|Out-Null'],capture_output=True,timeout=15)
+        result=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',"$ErrorActionPreference='Stop';New-Item -ItemType Junction -Path "+quote(path)+' -Target '+quote(target)+'|Out-Null'],capture_output=True,timeout=15,env=powershell_environment())
         if result.returncode:raise Error('Private dependency junction creation failed')
     else:path.symlink_to(target,target_is_directory=True)
     if path.resolve()!=target.resolve():raise Error('Internal dependency alias did not verify')
@@ -83,7 +84,7 @@ def materialize(receipt,expected,destination,monitor=lambda:None,frontend=None,a
             p.parent.mkdir(parents=True,exist_ok=True)
         quoted="'"+str(mapping).replace("'","''")+"'"
         script="$ErrorActionPreference='Stop';foreach($row in (Get-Content -LiteralPath "+quoted+" -Raw|ConvertFrom-Json)){New-Item -ItemType Junction -Path $row.path -Target $row.target|Out-Null}"
-        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,timeout=30)
+        r=subprocess.run([powershell(),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,timeout=30,env=powershell_environment())
         if r.returncode:raise Error('Closed internal alias materialization failed')
         for p,t in directory_links:
             if p.resolve()!=t.resolve():raise Error('Materialized alias identity changed')

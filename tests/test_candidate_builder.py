@@ -1,5 +1,5 @@
 """Queue/recovery contracts with real disposable Git; fake builds are labeled."""
-import importlib.util,json,shutil,unittest
+import importlib.util,json,os,shutil,unittest
 from pathlib import Path
 from unittest.mock import patch
 import test_auto_sync as fixtures
@@ -113,4 +113,7 @@ class AcceptanceTests(unittest.TestCase):
             with self.subTest(changed=changed),self.assertRaises(b.Error):b.acceptance({**self.smoke,**changed},self.verification,self.job,'c'*64)
         for changed in ({'compiledModuleMatches':{}},{'compiledModuleMatches':{'app.py':True}},{'sourceCommit':'d'*40},{'candidateSha256':'d'*64}):
             with self.subTest(changed=changed),self.assertRaises(b.Error):b.acceptance(self.smoke,{**self.verification,**changed},self.job,'c'*64)
+    @unittest.skipUnless(os.name=='nt','Actual Windows event monitor')
+    def test_event_monitor_ignores_inherited_powershell_module_injection(self):
+        with patch.dict(os.environ,{'PSModulePath':str(Path(b.__file__).parent/'nonexistent-modules')}):b.Resources().incidents()
 if __name__=='__main__':unittest.main()
