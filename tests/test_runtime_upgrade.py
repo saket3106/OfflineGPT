@@ -117,5 +117,21 @@ class UpgradeTests(unittest.TestCase):
     def test_original_disabled_state_is_restored(self):
         self.task.enabled=False;identifier=self.prepare();self.u.apply(identifier)
         self.assertFalse(self.task.enabled);self.u.rollback(identifier);self.assertFalse(self.task.enabled)
+    def test_windows_crlf_task_backup_preserves_exact_export(self):
+        original=self.task.read
+        def windows_xml():
+            result=original();result['xml']=result['xml'].replace('><','>\r\n<');return result
+        with patch.object(self.task,'read',side_effect=windows_xml):
+            identifier=self.prepare();path,_=self.u.load(identifier)
+            self.assertEqual((path/'task-before.xml').read_bytes(),windows_xml()['xml'].encode())
+            self.u.apply(identifier);self.u.rollback(identifier)
+    def test_abandon_retains_bad_xml_backup_but_requires_unchanged_unapplied_state(self):
+        identifier=self.prepare();path,_=self.u.load(identifier)
+        (path/'task-before.xml').write_bytes(b'Invalid backup kept as evidence')
+        self.assertEqual(self.u.abandon(identifier)['status'],'ABANDONED')
+        self.assertEqual(self.pointer.read_bytes(),self.old_bytes)
+        self.assertEqual((path/'task-before.xml').read_bytes(),b'Invalid backup kept as evidence')
+        another=self.prepare();self.u.apply(another)
+        with self.assertRaises(upgrade.Error):self.u.abandon(another)
 
 if __name__=='__main__':unittest.main()

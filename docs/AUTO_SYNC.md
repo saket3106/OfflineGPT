@@ -180,3 +180,6 @@ Recovery accepts only the recorded old/new identities; unknown pointers/actions
 are retained for manual reconciliation. Failed upgrades never infer success from
 file absence. These journals support process-interruption recovery and explicit
 rollback; they are not a signed trust root or a certification of power-loss safety.
+An untouched `PREPARED` plan may be explicitly `abandon`ed using its upgrade ID
+only while the original pointer, task action, protected definition and enabled
+state still match. This keeps failed backup evidence and changes no task/runtime.

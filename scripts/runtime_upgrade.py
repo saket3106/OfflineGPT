@@ -22,7 +22,7 @@ def sibling(name):
 runner=sibling('sync_runner');auto=sibling('auto_sync')
 Error=runner.RunnerError
 TASK='OfflineGPT-VerifiedSourceSync'
-DONE={'COMPLETE','ROLLED_BACK'}
+DONE={'COMPLETE','ROLLED_BACK','ABANDONED'}
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 def ps_quote(value):return "'"+str(value).replace("'","''")+"'"
 
@@ -103,11 +103,13 @@ class Upgrade:
             path=self.directory/uuid.uuid4().hex;path.mkdir()
             (path/'old-runtime.json').write_bytes(self.pointer.read_bytes())
             runner.atomic(path/'new-runtime.json',new);runner.validate(path/'new-runtime.json')
-            (path/'task-before.xml').write_text(snapshot['xml'],encoding='utf-8')
+            # Export-ScheduledTask already uses CRLF on Windows. Text-mode
+            # translation would turn it into CRCRLF and alter the XML tree.
+            (path/'task-before.xml').write_bytes(snapshot['xml'].encode('utf-8'))
             return self.save(path,'PREPARED',id=path.name,oldSha256=runner.sha(path/'old-runtime.json'),newSha256=runner.sha(path/'new-runtime.json'),
                 oldAction=self.action_for(old),newAction=self.action_for(new),taskDefinition=definition(snapshot['xml']),
                 wasEnabled=snapshot['enabled'],pythonwSha256=runner.sha(Path(self.action_for(new)['execute'])),accepted=evidence,commit=commit)
-    def load(self,identifier):
+    def load(self,identifier,*,check_backup=True):
         if not re.fullmatch('[0-9a-f]{32}',identifier):raise Error('Invalid upgrade ID')
         path=runner.ordinary(self.directory/identifier)
         value=json.loads((runner.ordinary(path/'journal.json')).read_text())
@@ -119,7 +121,7 @@ class Upgrade:
         if any(old[k]!=new[k] for k in set(old)-{'commit','runtimeRoot','scripts'}):raise Error('Upgrade may not change approved roots/config/interpreter')
         if value['oldAction']!=self.action_for(old) or value['newAction']!=self.action_for(new):raise Error('Journal task actions differ from validated manifests')
         if runner.sha(Path(value['newAction']['execute']))!=value['pythonwSha256']:raise Error('Windowless interpreter changed')
-        if definition((path/'task-before.xml').read_text())!=value['taskDefinition']:raise Error('Task backup evidence changed')
+        if check_backup and definition((path/'task-before.xml').read_text())!=value['taskDefinition']:raise Error('Task backup evidence changed')
         return path,value
     def checked_task(self,value):
         snapshot=self.task.read()
@@ -162,10 +164,16 @@ class Upgrade:
             if current['action']!=value['oldAction'] or runner.sha(self.pointer)!=value['oldSha256']:raise Error('Rollback identity did not verify')
             self.task.enable(value['wasEnabled'])
             return self.save(path,'ROLLED_BACK',rolledBack=time.time())
+    def abandon(self,identifier):
+        """Cancel only an untouched prepared plan; never repair bad evidence."""
+        with auto.exclusive(self.manager.lock):
+            path,value=self.load(identifier,check_backup=False);snapshot=self.checked_task(value)
+            if value['status']!='PREPARED' or snapshot['running'] or snapshot['enabled']!=value['wasEnabled'] or snapshot['action']!=value['oldAction'] or runner.sha(self.pointer)!=value['oldSha256']:raise Error('Only an unchanged, unapplied prepared upgrade can be abandoned')
+            return self.save(path,'ABANDONED',reason='Prepared upgrade explicitly cancelled; no pointer/task mutation; all backup evidence retained')
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True)
-    parser.add_argument('command',choices=['prepare','apply','verify','rollback','status']);parser.add_argument('--upgrade')
+    parser.add_argument('command',choices=['prepare','apply','verify','rollback','abandon','status']);parser.add_argument('--upgrade')
     args=parser.parse_args();upgrade=Upgrade(args.config)
     if args.command=='prepare':result=upgrade.prepare()
     elif args.command=='status':result={'pending':[p.name for p in upgrade.pending()]}
