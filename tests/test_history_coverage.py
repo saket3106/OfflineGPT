@@ -91,6 +91,39 @@ class CoverageTests(unittest.TestCase):
         self.assertTrue(history_provenance_failures('The test ran on 2025-07-05 [M1].',[a,b]))
         self.assertEqual(history_provenance_failures('The test ran on 2025-07-05 [M2].',[a,b]),[])
 
+    def test_uncited_second_date_cannot_borrow_global_evidence(self):
+        a=source(1);b=source(2);b['date']='2025-07-05'
+        answer='The first trial ran on 2025-07-04 [M1]. The next trial ran on 2025-07-05.'
+        self.assertTrue(history_provenance_failures(answer,[a,b]))
+        self.assertEqual(history_provenance_failures(answer+' [M2]',[a,b]),[])
+
+    def test_uncertainty_in_another_claim_cannot_exempt_uncited_date(self):
+        a=source(1);b=source(2);b['date']='2025-07-05'
+        answer='I cannot verify an unrelated announcement. The first trial ran on 2025-07-04 [M1]. The next trial ran on 2025-07-05.'
+        self.assertTrue(history_provenance_failures(answer,[a,b]))
+
+    def test_multiline_dates_require_their_own_original_binding(self):
+        a=source(1);b=source(2);b['date']='2025-07-05'
+        answer='First trial: 2025-07-04 [M1]\nSecond trial: 2025-07-05'
+        self.assertTrue(history_provenance_failures(answer,[a,b]))
+        self.assertEqual(history_provenance_failures(answer+' [M2]',[a,b]),[])
+
+    def test_trailing_markdown_citation_binds_only_same_line(self):
+        a=source(1);b=source(2);b['date']='2025-07-05'
+        valid='The next trial ran on 2025-07-05. [M2](offlinegpt://chat/sample?message=2)'
+        self.assertEqual(history_provenance_failures(valid,[a,b]),[])
+        invalid='The first trial ran on 2025-07-04 [M1].\nThe next trial ran on 2025-07-05.\n[M2]'
+        self.assertTrue(history_provenance_failures(invalid,[a,b]))
+
+    def test_original_record_quote_keeps_verified_source_binding(self):
+        a=source(1,excerpt='The trial ran on 2025-07-04.')
+        self.assertEqual(history_provenance_failures(history_evidence_fallback([a]),[a]),[])
+
+    def test_quote_cannot_borrow_other_record_or_bind_uncited_prose(self):
+        a=source(1,excerpt='The trial ran on 2025-07-04.');b=source(2,excerpt='The trial ran on 2025-07-05.');b['date']='2025-07-05'
+        self.assertTrue(history_provenance_failures('[M1]\n\n> The trial ran on 2025-07-05.',[a,b]))
+        self.assertTrue(history_provenance_failures('[M1]\n\nThe trial ran on 2025-07-04.',[a,b]))
+
     def test_individual_operation_does_not_prove_identical_settings(self):
         a=source(1,'APPLICATION_IMAGE_TELEMETRY');a['runtimeFacts']={'duration_seconds':13.25}
         self.assertTrue(history_provenance_failures('Settings were identical [M1].',[a]))

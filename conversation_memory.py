@@ -172,8 +172,29 @@ def history_provenance_failures(answer,sources):
     """Check observable citation/date obligations, not semantic truth by fiat."""
     if not sources:return []
     failures=[]
+    # Preserve the existing original-record quote presentation: a citation
+    # header can bind an immediately following exact blockquote. Ordinary
+    # uncited prose cannot inherit that binding, and a quote from another
+    # retrieved record cannot be laundered under the header's source ID.
+    original_by_id={s['id']:str(s.get('excerpt','')) for s in sources}
+    quote_ids=[];bound_lines=[]
+    for line in answer.splitlines():
+        ids=set(re.findall(r'\bM\d+\b',line)) & original_by_id.keys()
+        if line.lstrip().startswith('>'):
+            quoted=line.lstrip()[1:].strip()
+            matched=[i for i in quote_ids if quoted and quoted in original_by_id[i]]
+            if matched:line+=' '+ ' '.join('['+i+']' for i in matched)
+        elif ids:quote_ids=sorted(ids)
+        elif line.strip():quote_ids=[]
+        bound_lines.append(line)
+    claim_text='\n'.join(bound_lines)
     # An uncertainty clause must not exempt unrelated historical assertions.
-    clauses=re.split(r'\n+|;\s*|(?<=[.!?])\s+|,?\s+(?:but|however|whereas|nevertheless)\s+',answer,flags=re.I)
+    # A citation after sentence punctuation at the end of the same physical
+    # line still belongs to that claim. Never borrow a citation across lines
+    # or from a different sentence simply because it appears in the answer.
+    citation=r'\[M\d+\](?:\([^\)\r\n]*\))?'
+    bound_answer=re.sub(r'([.!?])[ \t]+('+citation+r'(?:[ \t,]+'+citation+r')*)[ \t]*(?=\r?$)',r' \2\1',claim_text,flags=re.M)
+    clauses=re.split(r'\n+|;\s*|(?<=[.!?])\s+|,?\s+(?:but|however|whereas|nevertheless)\s+',bound_answer,flags=re.I)
     uncertainty=r"can.t verify|cannot verify|no (?:supporting|matching) (?:evidence|records)|unsupported|not verified|unverified"
     asserted=[line for line in clauses if line.strip() and not re.search(uncertainty,line,re.I)]
     valid={s['id'] for s in sources}
@@ -187,11 +208,6 @@ def history_provenance_failures(answer,sources):
         # a word boundary there incorrectly rejected genuine source dates.
         return set(re.findall(r'(?<!\d)(?:19|20)\d\d-\d{2}-\d{2}(?!\d)',text))
     # Assistant-claimed historical dates are not original confirmation.
-    supported=set()
-    for source in sources:
-        supported.update(dates(str(source.get('date',''))))
-        if source.get('evidenceKind') in {'USER_STATEMENT','USER_NOTE','APPLICATION_TOOL_RECORD','APPLICATION_IMAGE_TELEMETRY'}:
-            supported.update(dates(source.get('excerpt','')))
     missing=set()
     by_id={s['id']:dates(str(s.get('date','')))| (dates(s.get('excerpt','')) if s.get('evidenceKind') in {'USER_STATEMENT','USER_NOTE','APPLICATION_TOOL_RECORD','APPLICATION_IMAGE_TELEMETRY'} else set()) for s in sources}
     # A duration present in some other source does not support this citation.
@@ -248,9 +264,9 @@ def history_provenance_failures(answer,sources):
         failures.append('The retrieved originals include a USER_ERROR_REPORT. Do not deny that errors/problems were reported; distinguish an error report from evidence that its fix was implemented or verified.')
     for line in asserted:
         ids=set(re.findall(r'\bM\d+\b',line)) & valid
-        local_supported=set().union(*(by_id[i] for i in ids)) if ids else supported
+        local_supported=set().union(*(by_id[i] for i in ids)) if ids else set()
         missing.update(dates(line)-local_supported)
-    if missing:failures.append('These asserted historical dates lack original supporting records: '+', '.join(sorted(missing))+'. Remove or explicitly qualify unsupported milestones; assistant claims are not verified history.')
+    if missing:failures.append('These asserted historical dates lack claim-bound original citations or supporting dates: '+', '.join(sorted(missing))+'. Cite the relevant original for each claim or explicitly qualify it; an unrelated citation elsewhere does not verify this history.')
     # Check only observable unqualified equality claims, not arbitrary semantics.
     equality=r'\b(?:no parameter variation|(?:settings|parameters|seeds?) (?:were |are )?(?:identical|unchanged)|(?:identical|same) (?:settings|parameters|seed))\b'
     for line in asserted:
