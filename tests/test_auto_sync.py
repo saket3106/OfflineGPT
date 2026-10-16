@@ -153,4 +153,19 @@ class AutoSyncTests(unittest.TestCase):
         self.assertEqual(result['status'],'BLOCKED');self.assertEqual(result['retries'],9)
         self.assertEqual((self.repo/'app.py').read_text(),'VALUE=1\n')
 
+    def test_incidental_fetch_metadata_does_not_discard_verified_source(self):
+        original=subprocess.run
+        def update_metadata(*args,**kwargs):
+            result=original(*args,**kwargs)
+            if '-m' in args[0] and 'unittest' in args[0]:(self.repo/'.git/FETCH_HEAD').write_text('Synthetic fetch bookkeeping\n')
+            return result
+        with patch.object(subprocess,'run',side_effect=update_metadata):batch=self.prepare()
+        self.assertEqual(batch['status'],'AWAITING_REVIEW')
+        self.accept(batch);(self.repo/'.git/FETCH_HEAD').write_text('Later synthetic fetch bookkeeping\n')
+        result=self.manager.once();self.assertEqual(result['status'],'COMPLETE');self.assertTrue(result['incidentalGitMetadataRebound'])
+
+    def test_core_git_config_change_invalidates_accepted_review(self):
+        self.accept();self.g('config','offlinegpt.synthetic','changed')
+        self.assertEqual(self.manager.once()['status'],'BLOCKED');self.assertEqual((self.repo/'app.py').read_text(),'VALUE=1\n')
+
 if __name__=='__main__':unittest.main()

@@ -80,6 +80,14 @@ class Manager:
         if check and r.returncode:raise (NetworkError if args[0] in {'ls-remote','push','credential'} else Error)('Git operation failed: '+args[0])
         return r.stdout
     def head(self):return self.git('rev-parse','HEAD').decode().strip()
+    def git_identity(self):
+        return {'head':self.head(),'index':sync.digest(self.git('ls-files','--stage','-z')),
+                'config':sync.digest((self.repo/'.git/config').read_bytes()),
+                'headFile':sync.digest((self.repo/'.git/HEAD').read_bytes())}
+    def semantic_plan_digest(self,plan):
+        # Rebind incidental fetch/object metadata only after all meaningful
+        # source/repository/index/HEAD/config identities have been rechecked.
+        return sync.digest(sync.canonical({k:v for k,v in plan.items() if k!='gitMetadataDigest'}))
     def guard(self,clean=True):
         if sync.load(self.state/'control.json')['mode']!='running':raise Error('Manager is paused/stopped')
         sync.git_fingerprint(self.repo,self.cfg['git'])
@@ -118,7 +126,7 @@ class Manager:
     def prepare(self,title):
         if not isinstance(title,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 .,():/-]{5,100}',title):raise Error('Use a bounded sanitized batch title')
         with exclusive(self.lock):
-            self.guard();before=self.source_identity();repo_before=sync.tree_hashes(self.repo,self.cfg['git']);git_before=sync.git_fingerprint(self.repo,self.cfg['git'])
+            self.guard();before=self.source_identity();repo_before=sync.tree_hashes(self.repo,self.cfg['git']);git_before=self.git_identity()
             time.sleep(self.cfg['debounceSeconds'])
             if before!=self.source_identity():raise Error('Source is still being written')
             path=self.state/'batches'/uuid.uuid4().hex;path.mkdir();snapshot=path/'source';snapshot.mkdir()
@@ -129,7 +137,7 @@ class Manager:
                     sync.atomic_write(sync.safe_path(snapshot,rel),data)
             identity=sync.digest(sync.canonical({'source':before,'repository':repo_before,'head':self.head(),'config':self.cfg}))
             self.record(path,'PREPARING',id=path.name,title=title,snapshotDigest=identity,sourceFiles=before,repositoryFiles=repo_before,
-                        parent=self.head(),configSha256=sync.digest(sync.canonical(self.cfg)),created=time.time())
+                        parent=self.head(),gitCore=git_before,configSha256=sync.digest(sync.canonical(self.cfg)),created=time.time())
             plan=sync.build_plan(self.repo,snapshot,self.cfg['git']);self.write(path/'plan.json',plan)
             if any(plan[k] for k in ('conflicts','findings','missingRequired','unapprovedCandidates')):
                 return self.record(path,'BLOCKED',reason='Existing sync preview has blocking findings',planDigest=sync.digest(sync.canonical(plan)))
@@ -146,25 +154,31 @@ class Manager:
             command=[self.cfg['python'],'-m','unittest','discover','-s','tests','-q']
             tested={p:sync.file_hash(verification,p) for p in repo_before}
             tested.update({a['file']:sync.file_hash(verification,a['file']) for a in plan['actions']})
-            if self.cfg['testProfile']=='publication':command+=['-p','test_source_sync.py']
+            docs_only=all(a['file'].startswith('docs/') for a in plan['actions'])
+            profile='publication' if docs_only else self.cfg['testProfile']
+            if profile=='publication' and not docs_only:return self.record(path,'BLOCKED',reason='Application/test changes require the unit test profile')
+            if profile=='publication':command+=['-p','test_source_sync.py']
             env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1','PYTHONUTF8':'1','OFFLINEGPT_TEST_GIT':self.cfg['git']}
             started=time.monotonic()
             try:
                 with (path/'tests.log').open('wb') as log:
                     result=subprocess.run(command,cwd=verification,stdout=log,stderr=subprocess.STDOUT,env=env,timeout=180)
-                receipt={'returnCode':result.returncode,'elapsedSeconds':time.monotonic()-started,'logSha256':sync.digest((path/'tests.log').read_bytes()),'profile':self.cfg['testProfile']}
+                receipt={'returnCode':result.returncode,'elapsedSeconds':time.monotonic()-started,'logSha256':sync.digest((path/'tests.log').read_bytes()),'profile':profile}
             except subprocess.TimeoutExpired:return self.record(path,'TEST_FAILED',reason='Bounded test command exceeded 180 seconds')
             if result.returncode:return self.record(path,'TEST_FAILED',tests=receipt)
             if tested!={p:sync.file_hash(verification,p) for p in tested}:return self.record(path,'STALE',reason='Tests modified their own source inputs',tests=receipt)
-            if before!=self.source_identity() or repo_before!=sync.tree_hashes(self.repo,self.cfg['git']) or git_before!=sync.git_fingerprint(self.repo,self.cfg['git']):
+            if before!=self.source_identity() or repo_before!=sync.tree_hashes(self.repo,self.cfg['git']) or git_before!=self.git_identity():
                 return self.record(path,'STALE',reason='Source/repository/Git changed during verification',tests=receipt)
-            return self.record(path,'AWAITING_REVIEW',tests=receipt,planDigest=sync.digest(sync.canonical(plan)))
+            refreshed=sync.build_plan(self.repo,snapshot,self.cfg['git'])
+            if self.semantic_plan_digest(refreshed)!=self.semantic_plan_digest(plan):return self.record(path,'STALE',reason='Publication projection changed during tests',tests=receipt)
+            self.write(path/'plan.json',refreshed)
+            return self.record(path,'AWAITING_REVIEW',tests=receipt,planDigest=sync.digest(sync.canonical(refreshed)),semanticPlanDigest=self.semantic_plan_digest(refreshed))
     def accept(self,identifier,identity,reviews):
         with exclusive(self.lock):
             self.guard();path=self.batch_path(identifier);batch=sync.load(path/'batch.json')
             if batch['status']!='AWAITING_REVIEW' or identity!=batch['snapshotDigest'] or set(reviews)!={'complete','content','dependencies','sourceLicenses'} or not all(v is True for v in reviews.values()):raise Error('Exact completed-batch review is required')
             if batch['sourceFiles']!=self.source_identity() or batch['repositoryFiles']!=sync.tree_hashes(self.repo,self.cfg['git']):raise Error('Review is stale')
-            if self.head()!=batch['parent'] or batch['configSha256']!=sync.digest(sync.canonical(self.cfg)):raise Error('Project identity changed')
+            if self.git_identity()!=batch['gitCore'] or batch['configSha256']!=sync.digest(sync.canonical(self.cfg)):raise Error('Project identity changed')
             return self.record(path,'ACCEPTED',reviews=reviews,accepted=time.time())
     def remote_head(self):
         raw=self.git('ls-remote','--heads','origin','refs/heads/'+self.cfg['branch']).decode().strip()
@@ -201,7 +215,11 @@ class Manager:
             snapshot=path/'source'
             if {p:sync.file_hash(snapshot,p) for p in batch['sourceFiles']}!=batch['sourceFiles']:raise Error('Immutable source snapshot was altered')
             plan=sync.build_plan(self.repo,snapshot,self.cfg['git'])
-            if sync.digest(sync.canonical(plan))!=batch['planDigest']:raise Error('Reviewed preview changed')
+            if self.git_identity()!=batch['gitCore'] or self.semantic_plan_digest(plan)!=batch['semanticPlanDigest']:raise Error('Reviewed preview/index/config changed')
+            exact_digest=sync.digest(sync.canonical(plan))
+            if exact_digest!=batch['planDigest']:
+                self.write(path/'plan.json',plan)
+                batch=self.record(path,'ACCEPTED',planDigest=exact_digest,incidentalGitMetadataRebound=True)
             remote=self.remote_head()
             if remote not in {None,batch['parent']}:return self.record(path,'BLOCKED',reason='Remote branch has concurrent/unreconciled work')
             self.record(path,'APPLYING',remoteBefore=remote)

@@ -67,7 +67,9 @@ python scripts/auto_sync.py --config $Config stop
 The only test profiles are fixed standard-library unittest commands: `unit`
 (full source suite) and `publication` (sync-controller suite). No arbitrary shell,
 generated Python/SQL, model benchmark or release script command is accepted.
-Test execution is bounded to 180 seconds and Git commands to 30 seconds.
+Documentation-only batches use the focused publication suite; application or
+test changes require the full `unit` profile. Test execution is bounded to
+180 seconds and Git commands to 30 seconds.
 Private test logs may contain diagnostic fixture content and must not be synced.
 
 ## Verified publication and recovery boundaries
@@ -76,6 +78,9 @@ Private test logs may contain diagnostic fixture content and must not be synced.
   automatically released on process exit. Phase receipts survive a crash.
 - Source, snapshot, config, repository, branch, remote, index and HEAD changes
   invalidate acceptance. Sanitized protected files remain repository-owned.
+- Incidental Git fetch/object bookkeeping can be rebound to a fresh foundation
+  preview only when its entire semantic projection, actual index, HEAD, local
+  Git configuration and all source/repository bytes still match the review.
 - Existing sync journals/backups coordinate filesystem updates. Only exact
   reviewed managed paths, baseline state and manifest enter the Git index.
 - The actual index must match the reviewed projection and manifest. No unrelated
