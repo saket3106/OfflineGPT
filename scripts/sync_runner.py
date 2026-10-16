@@ -48,11 +48,16 @@ def atomic(path,value):
         if os.path.exists(temporary):os.unlink(temporary)
 def run(manifest_path):
     manifest,paths=validate(manifest_path)
-    started=time.monotonic();command=[str(paths['pythonPath']),'-I',str(paths['runtimeRoot']/'scripts/auto_sync.py'),'--config',str(paths['configPath']),'run-once']
+    started=time.monotonic()
     env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1','PYTHONUTF8':'1','GIT_TERMINAL_PROMPT':'0','GCM_INTERACTIVE':'Never'}
     receipt={'started':time.time(),'controllerCommit':manifest['commit'],'scope':'Accepted source publication only'}
     try:
-        child=subprocess.run(command,cwd=paths['privateRoot'],capture_output=True,env=env,timeout=110)
+        # -I ignores PYTHONDONTWRITEBYTECODE, and -B alone still reads existing
+        # timestamp caches. Use a fresh empty lookup namespace as well as -B.
+        # This prevents unhashed adjacent .pyc files overriding approved .py.
+        with tempfile.TemporaryDirectory(prefix='.source-bytecode-',dir=paths['privateRoot']) as cache:
+            command=[str(paths['pythonPath']),'-I','-B','-X','pycache_prefix='+cache,str(paths['runtimeRoot']/'scripts/auto_sync.py'),'--config',str(paths['configPath']),'run-once']
+            child=subprocess.run(command,cwd=paths['privateRoot'],capture_output=True,env=env,timeout=110)
         if len(child.stdout)>8*1024**2:raise RunnerError('Controller output exceeded its bounded receipt size')
         receipt.update(returnCode=child.returncode,stdoutSha256=hashlib.sha256(child.stdout).hexdigest(),stderrSha256=hashlib.sha256(child.stderr).hexdigest())
         if child.returncode==0:

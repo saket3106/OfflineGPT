@@ -24,9 +24,13 @@ sync=importlib.util.module_from_spec(spec);spec.loader.exec_module(sync)
 Error=sync.SyncError
 class NetworkError(Error):pass
 TERMINAL={'COMPLETE','NO_CHANGES','BLOCKED','TEST_FAILED','CI_FAILED','CI_TIMED_OUT','RECOVERY_REQUIRED','STALE'}
-# The source workflow itself is limited to ten minutes. Allow queue/network
+# The source workflow itself is limited to fifteen minutes. Allow queue/network
 # headroom, but never hold later accepted batches indefinitely.
 CI_WAIT_SECONDS=30*60
+# The full source suite now includes Windows recovery/controller regressions;
+# measured complete runs exceed the historical three-minute projection budget.
+# Preserve every test and a fixed deadline; documentation keeps its small gate.
+TEST_SECONDS={'unit':600,'publication':180}
 
 @contextmanager
 def exclusive(path):
@@ -166,9 +170,9 @@ class Manager:
             started=time.monotonic()
             try:
                 with (path/'tests.log').open('wb') as log:
-                    result=subprocess.run(command,cwd=verification,stdout=log,stderr=subprocess.STDOUT,env=env,timeout=180)
-                receipt={'returnCode':result.returncode,'elapsedSeconds':time.monotonic()-started,'logSha256':sync.digest((path/'tests.log').read_bytes()),'profile':profile}
-            except subprocess.TimeoutExpired:return self.record(path,'TEST_FAILED',reason='Bounded test command exceeded 180 seconds')
+                    result=subprocess.run(command,cwd=verification,stdout=log,stderr=subprocess.STDOUT,env=env,timeout=TEST_SECONDS[profile])
+                receipt={'returnCode':result.returncode,'elapsedSeconds':time.monotonic()-started,'logSha256':sync.digest((path/'tests.log').read_bytes()),'profile':profile,'budgetSeconds':TEST_SECONDS[profile]}
+            except subprocess.TimeoutExpired:return self.record(path,'TEST_FAILED',reason='Bounded '+profile+' test command exceeded '+str(TEST_SECONDS[profile])+' seconds; review owned test processes before retry',requiresProcessReview=True,testBudgetSeconds=TEST_SECONDS[profile])
             if result.returncode:return self.record(path,'TEST_FAILED',tests=receipt)
             if tested!={p:sync.file_hash(verification,p) for p in tested}:return self.record(path,'STALE',reason='Tests modified their own source inputs',tests=receipt)
             if before!=self.source_identity() or repo_before!=sync.tree_hashes(self.repo,self.cfg['git']) or git_before!=self.git_identity():

@@ -69,7 +69,12 @@ The only test profiles are fixed standard-library unittest commands: `unit`
 generated Python/SQL, model benchmark or release script command is accepted.
 Documentation-only batches use the focused publication suite; application or
 test changes require the full `unit` profile. Test execution is bounded to
-180 seconds and Git commands to 30 seconds.
+600 seconds for the complete unit suite, 180 seconds for documentation's focused
+publication suite, and Git commands to 30 seconds. The full suite is retained;
+the longer unit budget accommodates measured Windows controller/recovery tests.
+Timeouts remain failures and require owned-process review before any retry.
+The Windows source-safety job has a separate fifteen-minute deadline; this does
+not extend the thirty-minute CI liveness cap or authorize model benchmarks.
 Private test logs may contain diagnostic fixture content and must not be synced.
 
 ## Verified publication and recovery boundaries
@@ -139,7 +144,10 @@ Never point a scheduled action directly at an editable working-tree script.
 The private runtime manifest binds every controller hash, the interpreter,
 configuration and approved roots. The runner rejects changed code/configuration,
 links, missing scripts and unexpected names, then starts the fixed controller
-with Python isolated mode. It records a private bounded execution receipt.
+with Python isolated mode, bytecode writes disabled and a fresh empty bytecode
+lookup namespace. `-B` alone does not prevent a stale or injected adjacent cache
+from being read. The temporary lookup directory is cleaned after execution.
+It records a private bounded execution receipt.
 
 After controller changes, first pass review and exact remote CI. Create a new
 frozen runtime from those committed Git blobs and explicitly update its accepted

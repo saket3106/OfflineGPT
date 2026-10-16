@@ -13,7 +13,7 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class MilestoneTests(unittest.TestCase):
     def setUp(self):
         self.fixture=fixtures.AutoSyncTests('runTest');self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
-        self.f=self.fixture;self.repo=self.f.repo;self.manager=m.auto.Manager(self.f.config,local_fixture=True)
+        self.f=self.fixture;self.manager=m.auto.Manager(self.f.config,local_fixture=True);self.repo=self.manager.repo
         self.definition={'id':'synthetic-scope-v1','kind':'engineering_infrastructure','title':'Synthetic engineering milestone','summary':'Synthetic infrastructure proof for controller regression only.','limitation':'This fixture is not real application or model acceptance.','inputs':['app.py'],'evidenceKind':'windows_integration','checks':['actual-operation','preservation'],'minimumImprovement':0}
         self.commit_definition()
         self.state=self.manager.state/'milestones';self.controller=m.Milestones(self.manager,self.state)
@@ -104,7 +104,7 @@ class MilestoneTests(unittest.TestCase):
     def interrupt(self):
         plan=self.prepare();real=m.s.atomic_write
         def stop(path,data):
-            if path==self.repo/'CHANGELOG.md':raise OSError('Synthetic interruption')
+            if path.resolve()==(self.repo/'CHANGELOG.md').resolve():raise OSError('Synthetic interruption')
             real(path,data)
         with patch.object(m.s,'atomic_write',side_effect=stop),self.assertRaises(OSError):self.apply(plan)
         self.assertEqual(json.loads((self.state/plan['id']/'journal.json').read_text())['status'],'APPLYING');return plan

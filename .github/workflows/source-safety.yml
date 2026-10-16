@@ -11,7 +11,7 @@ concurrency:
 jobs:
   publication:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONUTF8: '1'

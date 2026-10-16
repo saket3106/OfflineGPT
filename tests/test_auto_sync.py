@@ -49,6 +49,21 @@ class AutoSyncTests(unittest.TestCase):
         batch=self.prepare();self.assertEqual(self.manager.once()['status'],'IDLE')
         with self.assertRaises(auto.Error):self.manager.accept(batch['id'],batch['snapshotDigest'],{**REVIEWS,'complete':False})
         self.assertEqual(self.g('rev-list','--count','HEAD').strip(),b'1')
+    def test_complete_unit_suite_uses_measured_bounded_budget_without_filtering(self):
+        real=subprocess.run;calls=[]
+        def capture(command,**kwargs):
+            if '-m' in command and 'unittest' in command:calls.append((list(command),kwargs['timeout']))
+            return real(command,**kwargs)
+        with patch.object(auto.subprocess,'run',side_effect=capture):batch=self.prepare()
+        self.assertEqual(batch['status'],'AWAITING_REVIEW');self.assertEqual(calls[0][1],600);self.assertNotIn('-p',calls[0][0]);self.assertEqual(batch['tests']['budgetSeconds'],600)
+    def test_unit_timeout_retains_failure_and_requires_owned_process_review(self):
+        real=subprocess.run
+        def timeout(command,**kwargs):
+            if '-m' in command and 'unittest' in command:raise subprocess.TimeoutExpired(command,kwargs['timeout'])
+            return real(command,**kwargs)
+        with patch.object(auto.subprocess,'run',side_effect=timeout):batch=self.prepare()
+        self.assertEqual(batch['status'],'TEST_FAILED');self.assertEqual(batch['testBudgetSeconds'],600);self.assertTrue(batch['requiresProcessReview'])
+        with self.assertRaises(auto.Error):self.accept(batch)
     def test_exact_snapshot_approval_and_live_source_drift(self):
         batch=self.prepare()
         with self.assertRaises(auto.Error):self.manager.accept(batch['id'],'0'*64,REVIEWS)

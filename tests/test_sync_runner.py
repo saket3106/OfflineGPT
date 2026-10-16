@@ -2,7 +2,9 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import py_compile
 import subprocess
 import sys
 import tempfile
@@ -27,7 +29,8 @@ class FrozenRunnerTests(unittest.TestCase):
         fake=subprocess.CompletedProcess([],0,b'{"status":"IDLE"}',b'')
         with patch.object(subprocess,'run',return_value=fake) as call:
             self.assertEqual(runner.run(self.path)['status'],'IDLE')
-        command=call.call_args.args[0];self.assertIn('-I',command);self.assertEqual(Path(command[2]),self.runtime/'scripts/auto_sync.py')
+        command=call.call_args.args[0];self.assertIn('-I',command);self.assertIn('-B',command);self.assertEqual(Path(command[5]),self.runtime/'scripts/auto_sync.py')
+        self.assertTrue(command[4].startswith('pycache_prefix='));self.assertFalse(list(self.private.glob('.source-bytecode-*')))
         self.assertTrue((self.private/'last-run.json').exists())
     def test_tampered_controller_prevents_any_subprocess(self):
         (self.runtime/'scripts/auto_sync.py').write_text('UNREVIEWED=1')
@@ -50,6 +53,19 @@ class FrozenRunnerTests(unittest.TestCase):
     def test_timeout_is_bounded_and_recorded(self):
         with patch.object(subprocess,'run',side_effect=subprocess.TimeoutExpired('synthetic',110)):result=runner.run(self.path)
         self.assertEqual(result['status'],'TIMEOUT');self.assertEqual(result['returnCode'],2)
+        self.assertFalse(list(self.private.glob('.source-bytecode-*')))
+    def test_real_poisoned_timestamp_cache_does_not_override_frozen_source(self):
+        helper=self.runtime/'scripts/sync_source.py';helper.write_text("VALUE = 'evil'\n");stamp=helper.stat();py_compile.compile(str(helper),doraise=True)
+        helper.write_text("VALUE = 'good'\n");os.utime(helper,ns=(stamp.st_atime_ns,stamp.st_mtime_ns))
+        entry=self.runtime/'scripts/auto_sync.py'
+        entry.write_text("import importlib.util,json\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('probe',Path(__file__).with_name('sync_source.py'))\nx=importlib.util.module_from_spec(spec);spec.loader.exec_module(x)\nprint(json.dumps({'status':'IDLE' if x.VALUE=='good' else 'RECOVERY_REQUIRED'}))\n")
+        self.manifest['scripts']={n:runner.sha(self.runtime/'scripts'/n) for n in runner.SCRIPTS};self.save()
+        # Independent counterexample: -I/-B with adjacent timestamp cache is
+        # unsafe despite matching approved source bytes and file timestamps.
+        old=subprocess.run([sys.executable,'-I','-B',str(entry)],capture_output=True,check=True,timeout=15)
+        self.assertEqual(json.loads(old.stdout)['status'],'RECOVERY_REQUIRED')
+        result=runner.run(self.path);self.assertEqual(result['status'],'IDLE');self.assertEqual(result['returnCode'],0)
+        self.assertFalse(list(self.private.glob('.source-bytecode-*')))
     def test_invalid_interpreter_identity_blocks(self):
         self.manifest['pythonSha256']='0'*64;self.save()
         with self.assertRaises(runner.RunnerError):runner.validate(self.path)
