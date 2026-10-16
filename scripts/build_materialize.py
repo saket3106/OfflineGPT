@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 import subprocess
 import time
@@ -25,10 +26,17 @@ def copy_verified(source,target,expected):
     source=inputs.ordinary(source);target=inputs.ordinary(target)
     if not source.is_file() or target.exists():raise Error('Missing source or existing materialization target')
     target.parent.mkdir(parents=True,exist_ok=True);h=hashlib.sha256()
-    with source.open('rb') as src,target.open('xb') as dst:
+    with source.open('rb') as src,target.open('x+b') as dst:
         while block:=src.read(1024**2):dst.write(block);h.update(block)
         dst.flush();os.fsync(dst.fileno())
-    if h.hexdigest()!=expected or inputs.sha(target)!=expected:raise Error('Materialized dependency differs from approved bytes')
+        # Independently read back flushed bytes through the exclusive creation
+        # handle. Reopening every new file caused measured Windows I/O stalls.
+        dst.seek(0);readback=hashlib.file_digest(dst,'sha256').hexdigest();observed=os.fstat(dst.fileno())
+        if h.hexdigest()!=expected or readback!=expected:raise Error('Materialized dependency differs from approved bytes')
+        if not stat.S_ISREG(observed.st_mode) or observed.st_nlink!=1:raise Error('Materialized dependency acquired an unsafe alias')
+    current=inputs.ordinary(target).stat()
+    fields=('st_dev','st_ino','st_size','st_mtime_ns')
+    if current.st_nlink!=1 or tuple(getattr(current,k) for k in fields)!=tuple(getattr(observed,k) for k in fields):raise Error('Materialized dependency identity changed after readback')
 def junction(path,target):
     if path.exists() or not target.is_dir():raise Error('Invalid internal dependency directory alias')
     path.parent.mkdir(parents=True,exist_ok=True)

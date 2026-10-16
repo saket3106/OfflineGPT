@@ -1,4 +1,5 @@
-import importlib.util,json,tempfile,unittest
+import importlib.util,json,os,tempfile,unittest
+from unittest.mock import patch
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('closed_materializer',Path(__file__).resolve().parents[1]/'scripts/build_materialize.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
@@ -23,6 +24,32 @@ class MaterializeTests(unittest.TestCase):
     def test_changed_input_and_unreviewed_pth_fail_closed(self):
         (self.roots['frontendDependencies']/'package/a.js').write_text('changed')
         with self.assertRaises(m.Error):self.run_copy()
+    def test_independent_readback_detects_mutation_after_flush(self):
+        source=self.roots['frontendDependencies']/'package/a.js';target=self.root/'copy.js';real=m.os.fsync
+        def corrupt(fd):
+            real(fd)
+            with target.open('ab') as file:file.write(b'altered')
+        with patch.object(m.os,'fsync',side_effect=corrupt),self.assertRaisesRegex(m.Error,'differs'):
+            m.copy_verified(source,target,m.inputs.sha(source))
+        self.assertEqual(source.read_text(),'safe synthetic module')
+    def test_new_hard_link_alias_is_rejected(self):
+        source=self.roots['frontendDependencies']/'package/a.js';target=self.root/'copy.js';real=m.os.fsync
+        def alias(fd):real(fd);os.link(target,self.root/'alias.js')
+        with patch.object(m.os,'fsync',side_effect=alias),self.assertRaisesRegex(m.Error,'alias'):
+            m.copy_verified(source,target,m.inputs.sha(source))
+    def test_path_replacement_after_close_is_rejected(self):
+        source=self.roots['frontendDependencies']/'package/a.js';target=self.root/'copy.js';real=m.inputs.ordinary
+        def replace(path):
+            if Path(path)==target and target.exists():
+                target.rename(self.root/'retained-original.js');target.write_bytes(source.read_bytes())
+            return real(path)
+        with patch.object(m.inputs,'ordinary',side_effect=replace),self.assertRaisesRegex(m.Error,'identity'):
+            m.copy_verified(source,target,m.inputs.sha(source))
+    def test_readback_does_not_reopen_target_for_hashing(self):
+        source=self.roots['frontendDependencies']/'package/a.js';target=self.root/'copy.js';expected=m.inputs.sha(source)
+        with patch.object(m.inputs,'sha',side_effect=AssertionError('Unexpected target reopen')):
+            m.copy_verified(source,target,expected)
+        self.assertEqual(target.read_bytes(),source.read_bytes())
     def test_executable_pth_is_never_run_and_requires_exact_review(self):
         file=self.roots['pythonEnvironment']/'danger.pth';file.write_text('import os; raise RuntimeError("must never execute")')
         self.files['pythonEnvironment/danger.pth']=m.inputs.sha(file);self.save()

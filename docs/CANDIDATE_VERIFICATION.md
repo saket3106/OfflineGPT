@@ -25,6 +25,15 @@ Never edit a journal to fabricate success or delete it to skip the review.
 Frozen scheduled workers require an accepted transactional runtime upgrade to
 use new controller code. Source acceptance alone does not deploy the repair.
 
+Dependency copying retains source SHA-256, flush/fsync, an independent readback
+SHA-256 through the exclusively created read/write handle, and a subsequent
+ordinary-file identity/hard-link check. It does not reopen every new file merely
+to hash it. Measured Windows stalls occurred during those reopen/readback steps;
+the underlying OS scanning component has not been independently attributed.
+The fixed copy and overall build deadlines remain unchanged. Copy benchmarks
+and complete dependency materialization are non-native evidence; they are not
+proof of a newly packaged EXE or model performance.
+
 ## Build input and payload association
 
 `scripts/candidate_inputs.py` reads an exact Git revision, not mutable working
