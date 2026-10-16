@@ -25,6 +25,13 @@ Follow `docs/AUTO_SYNC.md` in the configured publication repository for commands
 and recovery. Agent instructions are the supported integration mechanism; no
 unavailable agent hook is assumed. File debounce does not prove task completion.
 
+Unattended publication executes a private, accepted commit snapshot through the
+hash-verifying frozen supervisor. Never point its scheduled action at an editable
+working-tree controller. Develop controller changes separately, review their
+exact source and remote CI, then activate a new accepted runtime explicitly.
+The controller's commit and each published application's source commit are
+separate identities; neither is permission to install a production update.
+
 Candidate building and milestone documentation are separate acceptance gates.
 Do not promote main, upload unlicensed binaries, replace models or install a
 production application through this source-publication protocol. Native origins,
