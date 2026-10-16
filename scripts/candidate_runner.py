@@ -1,5 +1,5 @@
 """Frozen scheduled candidate worker; no agent, installer or model invocation."""
-import argparse,hashlib,importlib.util,json,os,re,sys,time
+import argparse,contextlib,hashlib,importlib.util,json,os,re,sys,time,uuid
 from pathlib import Path
 SCRIPTS={'candidate_runner.py','candidate_builder.py','candidate_inputs.py','candidate_smoke.py','build_materialize.py','build_bootstrap.py','build_process.py','auto_sync.py','sync_source.py','audit_repository.py'}
 class Error(RuntimeError):pass
@@ -24,7 +24,14 @@ def validate(path):
     if cfg['controllerCommit']!=v['commit'] or ordinary(Path(cfg['privateRoot']))!=private:raise Error('Worker profile binding differs')
     return v,roots
 def run(path):
-    v,roots=validate(path);started=time.monotonic();receipt={'started':time.time(),'controllerCommit':v['commit'],'scope':'Private isolated non-native candidate building only'}
+    v,roots=validate(path)
+    previous=sys.pycache_prefix;writing=sys.dont_write_bytecode
+    try:
+        sys.pycache_prefix=str(roots['privateRoot']/('unused-bytecode-'+uuid.uuid4().hex));sys.dont_write_bytecode=True
+        return execute(v,roots)
+    finally:sys.pycache_prefix=previous;sys.dont_write_bytecode=writing
+def execute(v,roots):
+    started=time.monotonic();receipt={'started':time.time(),'controllerCommit':v['commit'],'scope':'Private isolated non-native candidate building only'}
     spec=importlib.util.spec_from_file_location('frozen_candidate_builder',roots['runtimeRoot']/'scripts/candidate_builder.py')
     builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
     try:

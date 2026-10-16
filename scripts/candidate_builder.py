@@ -16,7 +16,7 @@ Error=inputs.CandidateError
 class Deferred(Error):pass
 SCRIPTS={'candidate_runner.py','candidate_builder.py','candidate_inputs.py','candidate_smoke.py','build_materialize.py','build_bootstrap.py','build_process.py','auto_sync.py','sync_source.py','audit_repository.py'}
 ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','PROMOTING'}
-TERMINAL={'COMPLETE','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUIRED'}
+TERMINAL={'COMPLETE','ASSOCIATED','FAILED','BLOCKED','CANCELLED','SUPERSEDED','RECOVERY_REQUIRED'}
 def save(path,value):auto.sync.atomic_write(path,json.dumps(value,sort_keys=True,indent=2).encode())
 def digest_file(path):return inputs.sha(path)
 def powershell():return str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
@@ -31,6 +31,12 @@ def acceptance(smoke,verification,job,exe_hash):
         or verification.get('candidateSha256')!=exe_hash or verification.get('sourceCommit')!=job['sourceCommit']
         or verification.get('applicationInputSha256')!=job['graph']['applicationInputSha256']):
         raise Error('Actual packaged acceptance evidence is incomplete or inconsistent')
+def retained(pointer,job):
+    inputs.payload(Path(pointer['package']),Path(pointer['payloadManifest']),pointer['payloadManifestSha256'])
+    if inputs.sha(Path(pointer['package'])/'Offline GPT.exe')!=pointer['exeSha256'] or inputs.sha(Path(pointer['verification']))!=pointer['verificationSha256'] or inputs.sha(Path(pointer['smokeReceipt']))!=pointer['smokeSha256']:raise Error('Retained candidate/evidence identity changed')
+    verification=json.loads(Path(pointer['verification']).read_text(encoding='utf-8'))
+    acceptance(json.loads(Path(pointer['smokeReceipt']).read_text(encoding='utf-8')),verification,job,pointer['exeSha256'])
+    return verification
 
 class Resources:
     def __init__(self):self.started=time.time();self.deadline=time.monotonic()+900;self.last=0;self.samples=[]
@@ -64,9 +70,17 @@ class Builder:
     def __init__(self,config,*,fixture=False):
         self.config=inputs.ordinary(Path(config));self.cfg=json.loads(self.config.read_text())
         fields={'version','syncConfig','privateRoot','controllerCommit','environmentReceipt','environmentReceiptSha256','executableInputs','allowedPth','systemInputs','baselinePackage','baselineExeSha256'}
-        if set(self.cfg)!=fields or self.cfg['version']!=1:raise Error('Invalid build configuration')
+        if self.cfg.get('version')==2:fields.update({'historicalJobs','equivalentBaseline'})
+        if set(self.cfg)!=fields or self.cfg['version'] not in {1,2}:raise Error('Invalid build configuration')
+        if not isinstance(self.cfg.get('historicalJobs',{}),dict):raise Error('Invalid historical-job registry')
+        for key,row in self.cfg.get('historicalJobs',{}).items():
+            if not re.fullmatch('[a-f0-9]{64}',key) or set(row)!={'sha256','profileSha256','status'} or row['status'] not in TERMINAL-{'RECOVERY_REQUIRED'} or not all(re.fullmatch('[a-f0-9]{64}',row[n]) for n in ('sha256','profileSha256')):raise Error('Invalid immutable historical-job registry')
+        proof=self.cfg.get('equivalentBaseline')
+        if proof is not None and (not isinstance(proof,dict) or set(proof)!={'applicationInputSha256','environmentSha256','pointerSha256'} or not all(re.fullmatch('[a-f0-9]{64}',v) for v in proof.values())):raise Error('Invalid reviewed candidate equivalence binding')
         self.manager=auto.Manager(self.cfg['syncConfig'],local_fixture=fixture);self.fixture=fixture
         self.root=auto.sync.validate_external(inputs.ordinary(Path(self.cfg['privateRoot'])),self.manager.repo,self.manager.source)
+        production=inputs.ordinary(self.manager.source.parent/'Offline GPT')
+        if self.root.is_relative_to(production) or production.is_relative_to(self.root):raise Error('Private candidate state must never overlap the production application')
         if not self.config.is_relative_to(self.root):raise Error('Build configuration must remain private')
         if not re.fullmatch('[0-9a-f]{40}',self.cfg['controllerCommit']):raise Error('Exact accepted build controller revision required')
         self.profileHash=digest_file(self.config);self.root.mkdir(parents=True,exist_ok=True)
@@ -98,7 +112,11 @@ class Builder:
         journal=inputs.ordinary(path/'job.json')
         if not journal.is_file() or journal.stat().st_size>8*1024**2:raise Error('Missing or oversized job journal; preserve for review')
         value=json.loads(journal.read_text(encoding='utf-8'))
-        if value['buildKey']!=key or value['profileSha256']!=self.profileHash:raise Error('Build job/config identity changed')
+        if value['buildKey']!=key:raise Error('Build job identity changed')
+        if value['profileSha256']!=self.profileHash:
+            history=self.cfg.get('historicalJobs',{}).get(key)
+            if not history or history['sha256']!=inputs.sha(journal) or value['profileSha256']!=history['profileSha256'] or value['status']!=history['status']:raise Error('Build job/config identity changed')
+            return path,value
         if value['status'] not in ACTIVE|TERMINAL|{'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'} or type(value['attempts']) is not int or not 0<=value['attempts']<=2 or type(value['created']) not in (int,float) or not math.isfinite(value['created']) or value['created']<=0:raise Error('Invalid job lifecycle fields')
         if not re.fullmatch('[a-f0-9]{40}',value['sourceCommit']) or not isinstance(value['graph'],dict) or value['graph'].get('sourceCommit')!=value['sourceCommit'] or not isinstance(value['graph'].get('files'),dict) or not value['graph']['files'] or value['adapters']!=self.adapters or not isinstance(value['acceptedSources'],list) or not value['acceptedSources']:raise Error('Incomplete immutable job identity')
         if value['status']=='COMPLETE' and not self.fixture:
@@ -128,6 +146,16 @@ class Builder:
             return self.record(path,old['status'],acceptedSources=sources,required=old['required'] or required)
         path.mkdir()
         result=self.record(path,'QUEUED',buildKey=key,sourceCommit=commit,graph=graph,profileSha256=self.profileHash,adapters=self.adapters,acceptedSources=[{'commit':commit,**evidence}],required=required,attempts=0,created=time.time())
+        proof=self.cfg.get('equivalentBaseline')
+        if proof and graph['applicationInputSha256']==proof['applicationInputSha256'] and self.environment['environmentSha256']==proof['environmentSha256'] and inputs.sha(self.pointer)==proof['pointerSha256']:
+            try:
+                pointer=json.loads(self.pointer.read_text(encoding='utf-8'));_,original=self.job(pointer['buildKey'])
+                if original['status']!='COMPLETE' or (not self.fixture and original.get('actualBuildRun') is not True):raise Error('A genuine retained build is required for source association')
+                verification=retained(pointer,original)
+                if verification['files']!=graph['files']:raise Error('Application inputs differ from retained compiled source')
+                result=self.record(path,'ASSOCIATED',actualBuildRun=False,association={'builtSourceCommit':pointer['sourceCommit'],'buildKey':pointer['buildKey'],'candidateSha256':pointer['exeSha256'],'scope':'Existing genuine non-native artifact, identical application inputs; no rebuild or inference'})
+            except (Error,OSError,ValueError,KeyError,TypeError) as error:
+                self.record(path,'FAILED',reason='Retained artifact association refused: '+str(error));raise
         # Only explicitly optional pending revisions may be superseded.
         for previous in (self.root/'jobs').iterdir():
             if previous==path or not (previous/'job.json').exists():continue
@@ -262,12 +290,15 @@ class Builder:
                 current=json.loads((path/'job.json').read_text());status='RECOVERY_REQUIRED' if current['status']=='PROMOTING' else 'CANCELLED' if (path/'cancel.json').exists() else 'FAILED'
                 return self.record(path,status,reason=str(error))
     def cancel(self,key):
-        path,job=self.job(key);save(path/'cancel.json',{'requested':time.time()})
+        path,job=self.job(key)
+        if job['status'] in TERMINAL or job['profileSha256']!=self.profileHash:raise Error('Terminal/historical work cannot be cancelled')
+        save(path/'cancel.json',{'requested':time.time()})
         if job['status'] in {'QUEUED','WAITING_RESOURCE','WAITING_NETWORK'}:return self.record(path,'CANCELLED',reason='Cancelled before execution')
         return {'status':'CANCELLATION_REQUESTED','buildKey':key}
     def retry(self,key):
         with auto.exclusive(self.lock):
             path,job=self.job(key)
+            if job['profileSha256']!=self.profileHash:raise Error('Historical jobs are immutable; review and enqueue their accepted source under the current profile')
             if job['status'] not in {'FAILED','CANCELLED','RECOVERY_REQUIRED'} or job['attempts']>=2 or job.get('pointerAfter'):raise Error('Retry requires a recoverable failure, retained pointer and remaining budget')
             if (path/'cancel.json').exists():(path/'cancel.json').rename(path/('cancel-retained-'+uuid.uuid4().hex+'.json'))
             return self.record(path,'QUEUED',retryReviewed=time.time())

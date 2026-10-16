@@ -28,9 +28,13 @@ def ps_quote(value):return "'"+str(value).replace("'","''")+"'"
 
 class WindowsTask:
     """Fixed user task operations only; no arbitrary command or task selector."""
+    def __init__(self,task=TASK):
+        if task not in {'OfflineGPT-VerifiedSourceSync','OfflineGPT-VerifiedCandidateBuild'}:raise Error('Unapproved scheduled task')
+        self.task=task
     def call(self,body):
-        script="$ErrorActionPreference='Stop';$name='"+TASK+"';"+body
-        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],capture_output=True,timeout=25,encoding='utf-8')
+        script="$ErrorActionPreference='Stop';$name='"+self.task+"';"+body
+        powershell=Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe'
+        result=subprocess.run([str(powershell),'-NoProfile','-NonInteractive','-Command',script],capture_output=True,timeout=25,encoding='utf-8',env={**os.environ,'PSModulePath':str(powershell.parent/'Modules')})
         if result.returncode:raise Error('Scheduled source-task operation failed; inspect retained journal')
         return result.stdout
     def read(self):

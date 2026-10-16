@@ -124,6 +124,11 @@ class BuilderTests(unittest.TestCase):
     def test_incomplete_job_identity_never_reaches_executor(self):
         job=self.enqueue();path,_=self.builder.job(job['buildKey']);self.builder.record(path,'QUEUED',graph=None)
         with patch.object(self.builder,'execute',side_effect=AssertionError('Incomplete work must not execute')):self.assertEqual(self.builder.once()['status'],'ATTENTION')
+    def test_misconfigured_production_root_is_rejected_before_state_writes(self):
+        production=self.f.source.parent/'Offline GPT';production.mkdir();sentinel=production/'preserve.txt';sentinel.write_text('Synthetic production sentinel')
+        config=production/'profile.json';b.save(config,{**self.cfg,'privateRoot':str(production)})
+        with self.assertRaisesRegex(b.Error,'production'):b.Builder(config,fixture=True)
+        self.assertFalse((production/'jobs').exists());self.assertFalse((production/'current-candidate.json').exists());self.assertEqual(sentinel.read_text(),'Synthetic production sentinel')
     def test_failed_phase_retains_resource_telemetry(self):
         job=self.enqueue()
         class ResourceFixture:

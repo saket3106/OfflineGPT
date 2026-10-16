@@ -186,3 +186,42 @@ Preserve originals; inventory them privately, establish origin/license and DLL
 closure, and exclude real data. A strict full-payload verifier must reject
 unmanifested extras rather than silently treating a listed subset as the whole
 package. An unchanged old EXE hash proves only that EXE, not every adjacent file.
+
+## Accepted worker upgrades without recompiling unchanged application code
+
+`candidate_upgrade.py` reuses the existing fixed Windows task adapter and task
+definition checks. It requires exact private-source CI, unchanged application
+input bytes, a genuine completed build receipt, a fresh full payload check and
+the original eleven-check smoke evidence. Changed application inputs or pending
+jobs defer the control-only upgrade. Original terminal job journals remain
+immutable; version-2 profiles bind their exact hashes and separately bind the
+retained artifact. Corrupt records remain attention items, never successful work.
+
+```powershell
+python -I -S -B FROZEN_ADMIN/candidate_upgrade.py --manifest PRIVATE_ACTIVE_WORKER prepare
+python -I -S -B FROZEN_ADMIN/candidate_upgrade.py --manifest PRIVATE_ACTIVE_WORKER apply --upgrade REVIEWED_ID
+python -I -S -B FROZEN_ADMIN/candidate_upgrade.py --manifest PRIVATE_ACTIVE_WORKER verify --upgrade REVIEWED_ID
+python -I -S -B FROZEN_ADMIN/candidate_upgrade.py --manifest PRIVATE_ACTIVE_WORKER rollback --upgrade REVIEWED_ID
+```
+
+Preparation preserves the old manifest, configuration, task XML and candidate
+identity and creates a commit-versioned frozen runtime/profile. Application
+build identities remain in their original receipts. Apply disables the owned
+task, atomically switches the manifest/action and waits for a fresh actual
+scheduled receipt. Interrupted changes can restore the exact old manifest and
+action; unknown pointer/action/settings changes stop recovery. No user process
+is terminated. Never reuse the initial task installer for an upgrade.
+Freeze all thirteen admin dependency blobs from the exact CI-accepted commit
+under private `admin-runtime/COMMIT/scripts`, with `admin-manifest.json` beside
+that scripts directory. The entry point verifies it before sibling imports and
+rechecks every blob against accepted Git before mutation. Workers and admin
+commands redirect bytecode lookup to a fresh unused prefix, so an injected
+adjacent `.pyc` cannot override a correctly hashed source file. The old frozen
+runtime and configuration remain intact as rollback.
+
+When the newly reviewed profile proves unchanged application/environment and
+artifact bytes, accepted source aliases can record `ASSOCIATED`, explicitly
+`actualBuildRun: false`. Their original build identity is retained. This avoids
+an unnecessary application rebuild for control/documentation maintenance;
+changed application inputs still queue a real build. Reuse is non-native
+evidence and cannot make missing engines, weights or licensing ready.

@@ -1,5 +1,5 @@
 """Frozen build-worker input contracts; no builds, networks or user data."""
-import importlib.util,json,shutil,sys,tempfile,unittest
+import importlib.util,json,os,py_compile,shutil,sys,tempfile,unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock,patch
@@ -39,4 +39,11 @@ class RunnerTests(unittest.TestCase):
     def test_queue_attention_cannot_be_reported_as_healthy_idle(self):
         controller=Mock();controller.discover.return_value=[];controller.once.return_value={'status':'ATTENTION','queueAnomalyCount':1}
         result=self.execute_fixture(controller);self.assertEqual(result['queueAnomalyCount'],1);self.assertTrue(result['requiresReview']);self.assertEqual(result['returnCode'],2)
+    def test_adjacent_timestamp_cache_cannot_override_approved_source(self):
+        source=self.root/'cache_probe.py';source.write_text("VALUE = 'evil'\n");stamp=source.stat();py_compile.compile(str(source),doraise=True)
+        source.write_text("VALUE = 'good'\n");os.utime(source,ns=(stamp.st_atime_ns,stamp.st_mtime_ns));old_prefix=sys.pycache_prefix
+        def load_source(v,roots):
+            spec=importlib.util.spec_from_file_location('cache_probe',source);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module.VALUE
+        with patch.object(r,'execute',side_effect=load_source):self.assertEqual(r.run(self.path),'good')
+        self.assertEqual(sys.pycache_prefix,old_prefix)
 if __name__=='__main__':unittest.main()
