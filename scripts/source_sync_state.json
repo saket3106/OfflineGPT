@@ -328,6 +328,10 @@
     "tests/test_transaction_semantics.py": {
       "source": "d1a77ff35d2b87c73a336e910f1a905c230972e4ae44ec923917ad16587f5f92",
       "repository": "d1a77ff35d2b87c73a336e910f1a905c230972e4ae44ec923917ad16587f5f92"
+    },
+    "docs/DEVELOPMENT_PROTOCOL.md": {
+      "source": "34748d80858295002f109a33c6f983af0a6e23537478424553c84ed737022447",
+      "repository": "34748d80858295002f109a33c6f983af0a6e23537478424553c84ed737022447"
     }
   },
   "protected": {
