@@ -13,6 +13,7 @@ def sibling(name):
     m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 auto=sibling('auto_sync');inputs=sibling('candidate_inputs');material=sibling('build_materialize');process=sibling('build_process')
 Error=inputs.CandidateError
+class ReuseRefused(Error):pass
 class Deferred(Error):pass
 SCRIPTS={'candidate_runner.py','candidate_builder.py','candidate_inputs.py','candidate_smoke.py','build_materialize.py','build_bootstrap.py','build_process.py','auto_sync.py','sync_source.py','audit_repository.py'}
 ACTIVE={'PREPARING','MATERIALIZING','FRONTEND','PACKAGING','VERIFYING','SMOKE','PROMOTING'}
@@ -132,6 +133,30 @@ class Builder:
         if not receipt.exists():save(receipt,{**identity,'status':'RECOVERY_REQUIRED','observed':time.time(),'originalPreserved':True})
     def enqueue(self,commit,required=True):
         with auto.exclusive(self.lock):return self._enqueue(commit,required)
+    def checked_reuse(self,old,graph,commit):
+        """Terminal status is history, never evidence that current bytes match."""
+        try:
+            pointer_path=inputs.ordinary(self.pointer)
+            if not pointer_path.is_file() or pointer_path.stat().st_size>8*1024**2:raise Error('Missing or oversized candidate pointer')
+            pointer=json.loads(pointer_path.read_text(encoding='utf-8'))
+            if not isinstance(pointer,dict):raise Error('Malformed candidate pointer')
+            if old['status']=='COMPLETE':
+                if pointer.get('buildKey')!=old['buildKey'] or pointer!=old.get('pointerAfter'):raise Error('Current candidate differs from the completed build; retain both identities for review')
+                original=old
+            else:
+                association=old.get('association',{})
+                if not isinstance(association,dict):raise Error('Malformed association evidence')
+                if pointer.get('buildKey')!=association.get('buildKey') or pointer.get('exeSha256')!=association.get('candidateSha256'):raise Error('Associated candidate pointer changed; recovery review required')
+                _,original=self.job(pointer['buildKey'])
+            if original['status']!='COMPLETE' or not self.fixture and original.get('actualBuildRun') is not True:raise Error('Reuse requires retained genuine build evidence')
+            verification=retained(pointer,original)
+            if verification.get('files')!=graph['files']:raise Error('Current candidate source inputs differ from requested accepted source')
+            return {'requestedSourceCommit':commit,'artifactBuildKey':pointer['buildKey'],'artifactSourceCommit':original['sourceCommit'],'candidateSha256':pointer['exeSha256'],
+                    'payloadManifestSha256':pointer['payloadManifestSha256'],'verificationSha256':pointer['verificationSha256'],'smokeSha256':pointer['smokeSha256'],
+                    'observed':time.time(),'scope':'Fresh static payload and source verification; retained prior smoke, no new build or native inference'}
+        except (Error,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+            save(self.root/'reuse-refusals'/(uuid.uuid4().hex+'.json'),{'status':'REUSE_REFUSED','requestedSourceCommit':commit,'historicalBuildKey':old['buildKey'],'reason':str(error),'observed':time.time(),'historicalJournalPreserved':True})
+            raise ReuseRefused('Retained candidate reuse refused; inspect private reuse-refusals before recovery') from None
     def _enqueue(self,commit,required):
         evidence=self.accepted(commit);graph=inputs.inputs(self.manager.repo,commit,self.manager.cfg['git'])
         for name,h in self.cfg['executableInputs'].items():
@@ -141,9 +166,12 @@ class Builder:
         key=inputs.digest({'application':graph['applicationInputSha256'],'environment':self.environment['environmentSha256'],'adapters':self.adapters,'profile':self.profileHash})
         path=self.root/'jobs'/key
         if path.exists():
-            _,old=self.job(key);sources=old['acceptedSources']
+            _,old=self.job(key)
+            reuse=self.checked_reuse(old,graph,commit) if old['status'] in {'COMPLETE','ASSOCIATED'} else None
+            sources=old['acceptedSources']
             if not any(v['commit']==commit for v in sources):sources.append({'commit':commit,**evidence})
-            return self.record(path,old['status'],acceptedSources=sources,required=old['required'] or required)
+            extra={'lastReuseVerification':reuse} if reuse else {}
+            return self.record(path,old['status'],acceptedSources=sources,required=old['required'] or required,**extra)
         path.mkdir()
         result=self.record(path,'QUEUED',buildKey=key,sourceCommit=commit,graph=graph,profileSha256=self.profileHash,adapters=self.adapters,acceptedSources=[{'commit':commit,**evidence}],required=required,attempts=0,created=time.time())
         proof=self.cfg.get('equivalentBaseline')
@@ -180,12 +208,39 @@ class Builder:
                 if previous.get('retryAfter',0)>time.time():continue
                 try:
                     job=self.enqueue(value['commit'],True);results.append(job);seen[path.name]={'status':'QUEUED','commit':value['commit'],'buildKey':job['buildKey']}
+                except ReuseRefused as error:
+                    # Integrity/pointer ambiguity is not an offline retry.
+                    # Make it immediately visible to the frozen supervisor;
+                    # preserve historical success and continue healthy siblings.
+                    seen[path.name]={'status':'ATTENTION','sourceBatch':path.name,'reason':str(error),'observed':time.time()}
+                    results.append(seen[path.name])
                 except (auto.Error,Error) as error:
                     count=previous.get('attempts',0)+1
                     seen[path.name]={'status':'ATTENTION' if count>=8 else 'DISCOVERY_BLOCKED','sourceBatch':path.name,'reason':str(error),'attempts':count,'retryAfter':time.time()+min(1800,30*2**count)}
                     results.append(seen[path.name])
                 save(receipt,seen)
             return results
+    def retry_discovery(self,identifier):
+        if not isinstance(identifier,str) or not re.fullmatch('[a-f0-9]{32}',identifier):raise Error('Exact source batch ID required')
+        with auto.exclusive(inputs.ordinary(self.root/'discovery.lock')):
+            receipt=inputs.ordinary(self.root/'source-discovery.json')
+            if not receipt.is_file() or receipt.stat().st_size>8*1024**2:raise Error('Missing or oversized discovery journal')
+            seen=json.loads(receipt.read_text())
+            if not isinstance(seen,dict):raise Error('Invalid discovery journal')
+            before=seen.get(identifier)
+            if not isinstance(before,dict) or before.get('status')!='ATTENTION':raise Error('Only an explicit attention record can be reviewed for retry')
+            journal=inputs.ordinary(self.manager.state/'batches'/identifier/'batch.json')
+            if not journal.is_file() or journal.stat().st_size>8*1024**2:raise Error('Missing or oversized source batch journal')
+            value=json.loads(journal.read_text())
+            if not isinstance(value,dict) or value.get('status')!='COMPLETE' or value.get('candidateBuild')!='QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER' or not re.fullmatch('[a-f0-9]{40}',str(value.get('commit',''))):raise Error('Source batch is not complete and eligible')
+            # Keep attention untouched unless exact CI and any retained
+            # artifact pass again. No manual success flag or file deletion.
+            job=self.enqueue(value['commit'],True)
+            after={'status':'QUEUED','commit':value['commit'],'buildKey':job['buildKey']}
+            recovery=self.root/'discovery-recovery'/(uuid.uuid4().hex+'.json')
+            record={'status':'VERIFIED','sourceBatch':identifier,'sourceJournalSha256':inputs.sha(journal),'before':before,'after':after,'observed':time.time()};save(recovery,record)
+            seen[identifier]=after;save(receipt,seen);save(recovery,{**record,'status':'APPLIED'})
+            return {'status':'DISCOVERY_RETRY_VERIFIED','sourceBatch':identifier,'buildKey':job['buildKey'],'recoveryReceipt':str(recovery)}
     def source_snapshot(self,job,attempt,monitor=lambda:None):
         source=attempt/'source';source.mkdir()
         for name,h in job['graph']['files'].items():
@@ -320,15 +375,18 @@ class Builder:
         for path in (self.root/'jobs').iterdir():
             try:jobs.append(self.job(path.name)[1])
             except (Error,OSError,ValueError,KeyError,TypeError) as error:issues.append({'name':path.name,'status':'RECOVERY_REQUIRED','reason':str(error)})
-        return {'control':json.loads((self.root/'control.json').read_text()),'candidate':json.loads(self.pointer.read_text()),'jobs':jobs,'queueIssues':issues}
+        discovery=self.root/'source-discovery.json'
+        return {'control':json.loads((self.root/'control.json').read_text()),'candidate':json.loads(self.pointer.read_text()),'jobs':jobs,'queueIssues':issues,
+                'sourceDiscovery':json.loads(discovery.read_text()) if discovery.exists() else {},'integrityNote':'Historical job status is not a fresh payload health check'}
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('command',choices=['enqueue','discover','run-once','status','cancel','retry','recover','start','pause','stop']);parser.add_argument('--commit');parser.add_argument('--job');parser.add_argument('--optional',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('command',choices=['enqueue','discover','run-once','status','cancel','retry','recover','retry-discovery','start','pause','stop']);parser.add_argument('--commit');parser.add_argument('--job');parser.add_argument('--batch');parser.add_argument('--optional',action='store_true');args=parser.parse_args()
     builder=Builder(args.config)
     if args.command=='enqueue':result=builder.enqueue(args.commit,not args.optional)
     elif args.command=='discover':result=builder.discover()
     elif args.command=='run-once':builder.discover();result=builder.once()
     elif args.command in {'cancel','retry','recover'}:result=getattr(builder,args.command)(args.job)
+    elif args.command=='retry-discovery':result=builder.retry_discovery(args.batch)
     elif args.command=='status':result=builder.status()
     else:save(builder.root/'control.json',{'mode':'running' if args.command=='start' else args.command});result=builder.status()
     print(json.dumps(result,indent=2))

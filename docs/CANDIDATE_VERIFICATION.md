@@ -4,6 +4,27 @@ The candidate and installed application are separate artifacts. Source-only
 controller updates do not justify rebuilding unchanged application inputs.
 Keep previous candidate directories and production data intact.
 
+## Reusing and recovering retained candidates
+
+A terminal COMPLETE or ASSOCIATED journal describes history, not current file
+integrity. Re-enqueueing that application identity must freshly verify the
+current pointer, full payload, retained acceptance receipts and exact requested
+application inputs. The original artifact/source identity remains immutable;
+`lastReuseVerification` records the additional requested source and explicitly
+identifies static verification with retained prior smoke, not a new build.
+
+Changed bytes, malformed pointers or an unrelated current candidate produce a
+private `reuse-refusals` receipt. Discovery enters persistent ATTENTION
+immediately; it does not disguise integrity errors as network retries. Healthy
+sibling batches can continue. After reviewing/restoring approved artifacts or
+choosing an independently accepted recovery, use the reviewed builder's
+`retry-discovery --batch BATCH_ID` command. It revalidates source CI and the
+artifact before clearing that attention entry, and retains recovery evidence.
+Never edit a journal to fabricate success or delete it to skip the review.
+
+Frozen scheduled workers require an accepted transactional runtime upgrade to
+use new controller code. Source acceptance alone does not deploy the repair.
+
 ## Build input and payload association
 
 `scripts/candidate_inputs.py` reads an exact Git revision, not mutable working

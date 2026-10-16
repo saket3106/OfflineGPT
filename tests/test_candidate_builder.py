@@ -34,6 +34,66 @@ class BuilderTests(unittest.TestCase):
     def test_required_revisions_are_never_coalesced_or_dropped_when_inputs_differ(self):
         first=self.enqueue();next_commit=self.change('app.py','VALUE=2\n');second=self.builder.enqueue(next_commit)
         self.assertNotEqual(first['buildKey'],second['buildKey']);self.assertEqual(self.builder.job(first['buildKey'])[1]['status'],'QUEUED')
+    def synthetic_completed_artifact(self,associated=False):
+        job=self.enqueue();path,_=self.builder.job(job['buildKey']);package=Path(self.cfg['baselinePackage']);exe=package/'Offline GPT.exe';h=b.inputs.sha(exe)
+        payload=self.private/'payload.json';payload.write_text(json.dumps({'Offline GPT.exe':h}))
+        verification=self.private/'verification.json';verification.write_text(json.dumps({'sourceCommit':job['sourceCommit'],'candidateSha256':h,'applicationInputSha256':job['graph']['applicationInputSha256'],'files':job['graph']['files'],'compiledModuleMatches':{n:True for n in job['graph']['files'] if '/' not in n and n.endswith('.py')}}))
+        smoke=self.private/'smoke.json';smoke.write_text(json.dumps({'status':'PASSED','remainingOwnedPids':[],'modelRequestsIssued':0,'exeSha256':h,'checks':dict.fromkeys(b.SMOKE_CHECKS,True),'fixtureOnly':True}))
+        key='a'*64 if associated else job['buildKey']
+        pointer={'package':str(package),'exeSha256':h,'buildKey':key,'sourceCommit':job['sourceCommit'],'payloadManifest':str(payload),'payloadManifestSha256':b.inputs.sha(payload),'verification':str(verification),'verificationSha256':b.inputs.sha(verification),'smokeReceipt':str(smoke),'smokeSha256':b.inputs.sha(smoke)}
+        if associated:
+            original=self.private/'jobs'/key;original.mkdir();b.save(original/'job.json',{**job,'buildKey':key,'status':'COMPLETE','actualBuildRun':False,'fixtureOnly':True,'pointerAfter':pointer})
+            self.builder.record(path,'ASSOCIATED',actualBuildRun=False,association={'buildKey':key,'candidateSha256':h})
+        else:self.builder.record(path,'COMPLETE',actualBuildRun=False,fixtureOnly=True,pointerAfter=pointer)
+        b.save(self.builder.pointer,pointer);return job['buildKey'],exe
+    def test_corrupt_completed_payload_never_accepts_new_source_from_cached_status(self):
+        key,exe=self.synthetic_completed_artifact();path,_=self.builder.job(key);before=(path/'job.json').read_bytes();exe.write_bytes(b'Corrupt synthetic artifact, never executed')
+        next_commit=self.change('README.md','Synthetic next accepted documentation')
+        with self.assertRaisesRegex(b.Error,'reuse refused'):self.builder.enqueue(next_commit)
+        self.assertEqual((path/'job.json').read_bytes(),before);self.assertEqual(len(list((self.private/'reuse-refusals').glob('*.json'))),1)
+    def test_corrupt_associated_payload_is_revalidated_not_cached(self):
+        key,exe=self.synthetic_completed_artifact(True);path,_=self.builder.job(key);before=(path/'job.json').read_bytes();exe.write_bytes(b'Corrupt associated artifact, never executed')
+        with self.assertRaisesRegex(b.Error,'reuse refused'):self.builder.enqueue(self.change('README.md','Synthetic documentation after association'))
+        self.assertEqual((path/'job.json').read_bytes(),before)
+    def assert_valid_reuse(self,associated):
+        key,exe=self.synthetic_completed_artifact(associated);before=self.builder.pointer.read_bytes();old=self.builder.job(key)[1]['sourceCommit'];new=self.change('README.md','Synthetic valid reuse request')
+        result=self.builder.enqueue(new);self.assertEqual(result['sourceCommit'],old);self.assertEqual(result['lastReuseVerification']['requestedSourceCommit'],new);self.assertEqual(self.builder.pointer.read_bytes(),before)
+        self.assertEqual(result['lastReuseVerification']['candidateSha256'],b.inputs.sha(exe))
+    def test_valid_terminal_payload_reuses_without_rebuilding_or_relabeling_source(self):self.assert_valid_reuse(False)
+    def test_valid_associated_payload_reuses_with_original_build_identity(self):self.assert_valid_reuse(True)
+    def test_reuse_corruption_is_immediate_persistent_attention_not_network_retry(self):
+        key,exe=self.synthetic_completed_artifact();exe.write_bytes(b'Corrupt artifact, no execution')
+        commit=self.change('README.md','Synthetic source requiring integrity review');path=self.builder.manager.state/'batches'/('e'*32);path.mkdir()
+        b.save(path/'batch.json',{'status':'COMPLETE','candidateBuild':'QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER','commit':commit})
+        result=self.builder.discover();self.assertEqual(result[0]['status'],'ATTENTION');self.assertEqual(self.builder.discover()[0]['status'],'ATTENTION')
+        self.assertEqual(len(list((self.private/'reuse-refusals').glob('*.json'))),1)
+    def test_discovery_retry_requires_restored_verified_bytes_and_keeps_evidence(self):
+        key,exe=self.synthetic_completed_artifact();original=exe.read_bytes();exe.write_bytes(b'Corrupt candidate, never executable')
+        commit=self.change('README.md','Synthetic recovery request');identifier='d'*32;path=self.builder.manager.state/'batches'/identifier;path.mkdir()
+        b.save(path/'batch.json',{'status':'COMPLETE','candidateBuild':'QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER','commit':commit});self.builder.discover()
+        state=self.private/'source-discovery.json';before=state.read_bytes()
+        with self.assertRaises(b.ReuseRefused):self.builder.retry_discovery(identifier)
+        self.assertEqual(state.read_bytes(),before)
+        exe.write_bytes(original);result=self.builder.retry_discovery(identifier);self.assertEqual(result['status'],'DISCOVERY_RETRY_VERIFIED')
+        self.assertEqual(json.loads(state.read_text())[identifier]['status'],'QUEUED');self.assertEqual(json.loads(Path(result['recoveryReceipt']).read_text())['status'],'APPLIED')
+        self.assertTrue(list((self.private/'reuse-refusals').glob('*.json')));self.assertIn(identifier,self.builder.status()['sourceDiscovery'])
+    def test_discovery_retry_cannot_approve_unknown_or_nonattention_batch(self):
+        b.save(self.private/'source-discovery.json',{});pointer=self.builder.pointer.read_bytes()
+        with self.assertRaises(b.Error):self.builder.retry_discovery('e'*32)
+        with self.assertRaises(b.Error):self.builder.retry_discovery('../unsafe')
+        self.assertEqual(self.builder.pointer.read_bytes(),pointer)
+    def test_malformed_pointer_schema_cannot_reuse_cached_success(self):
+        key,_=self.synthetic_completed_artifact();before=(self.builder.job(key)[0]/'job.json').read_bytes();b.save(self.builder.pointer,[])
+        with self.assertRaises(b.ReuseRefused):self.builder.enqueue(self.change('README.md','Synthetic malformed pointer recovery'))
+        self.assertEqual((self.builder.job(key)[0]/'job.json').read_bytes(),before)
+    def test_oversized_discovery_journal_is_bounded_before_parsing(self):
+        state=self.private/'source-discovery.json';state.write_bytes(b' '*(8*1024**2+1));before=b.inputs.sha(state)
+        with self.assertRaisesRegex(b.Error,'oversized'):self.builder.retry_discovery('d'*32)
+        self.assertEqual(b.inputs.sha(state),before)
+    def test_changed_active_pointer_refuses_reuse_without_overwriting_human_state(self):
+        key,_=self.synthetic_completed_artifact();before=self.builder.job(key)[0].joinpath('job.json').read_bytes();b.save(self.builder.pointer,{'human':'new candidate pointer'});pointer=self.builder.pointer.read_bytes()
+        with self.assertRaisesRegex(b.Error,'reuse refused'):self.builder.enqueue(self.change('README.md','Synthetic pointer drift source'))
+        self.assertEqual(self.builder.pointer.read_bytes(),pointer);self.assertEqual((self.builder.job(key)[0]/'job.json').read_bytes(),before)
     def test_only_explicitly_optional_pending_revision_can_be_superseded(self):
         first=self.enqueue(False);next_commit=self.change('app.py','VALUE=2\n');second=self.builder.enqueue(next_commit)
         self.assertEqual(self.builder.job(first['buildKey'])[1]['status'],'SUPERSEDED');self.assertEqual(self.builder.job(first['buildKey'])[1]['supersededBy'],second['buildKey'])
