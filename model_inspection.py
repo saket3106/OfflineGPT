@@ -99,7 +99,7 @@ def inspect_gguf(path,*,cancel_event=None):
         if tensors>131072 or metadata_count>16384:raise InspectionError('GGUF header count exceeds inspection limits')
         for _ in range(metadata_count):
             key=r.string(65535)
-            if not re.fullmatch(r'[a-z0-9_]+(?:\.[a-z0-9_]+)*',key) or key in keys:
+            if not re.fullmatch(r'[a-z0-9_\-]+(?:\.[a-z0-9_\-]+)*',key) or key in keys:
                 raise InspectionError('Invalid or duplicate GGUF metadata key')
             keys.add(key);value=r.value(r.number('I'))
             if key in {'general.architecture','general.file_type','general.quantization_version','general.alignment',
@@ -112,7 +112,7 @@ def inspect_gguf(path,*,cancel_event=None):
         if type(alignment) is not int or alignment<1 or alignment>4096 or alignment&(alignment-1):
             raise InspectionError('Invalid or unsupported GGUF tensor alignment')
         for _ in range(tensors):
-            name=r.string(64)
+            name=r.string(128)
             if not name or name in tensor_names:raise InspectionError('Empty or duplicate tensor name')
             tensor_names.add(name);dimensions=r.number('I')
             if dimensions<1 or dimensions>4:raise InspectionError('Unsupported GGUF tensor dimensionality')

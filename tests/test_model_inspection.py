@@ -96,6 +96,11 @@ class InspectionTests(unittest.TestCase):
             self.path.write_bytes(fixture(rows))
             with self.assertRaises(m.InspectionError):m.inspect_gguf(self.path)
 
+    def test_hyphenated_architecture_and_model_keys_accepted(self):
+        result=self.inspect(fixture([('gpt-oss.context_length',4,32768),('general.architecture',8,'gpt-oss')]))
+        self.assertEqual(result['metadata']['general.architecture'],'gpt-oss')
+        self.assertEqual(result['metadata']['gpt-oss.context_length'],32768)
+
     def test_invalid_bool_float_template_and_alignment_rejected(self):
         for row in (('general.x',7,2),('general.x',6,float('nan')),('tokenizer.chat_template',4,1),('general.alignment',4,3)):
             self.path.write_bytes(fixture([row]))
