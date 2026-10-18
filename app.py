@@ -53,7 +53,7 @@ from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QFrame,QVBoxLayo
     QFormLayout,QGroupBox,QSpinBox,QDoubleSpinBox,QGraphicsOpacityEffect,QProgressBar)
 from integrated_runtime import (EngineManager, EmptyVisibleResponseError, ToolCallCompletion,
                                 load_config, save_config, visible_assistant_text,
-                                physical_memory_status, available_cuda_memory)
+                                physical_memory_status, available_cuda_memory, resolve_path)
 from document_tools import (apply_document_operations, create_document_from_markdown, extract_document,
                             extract_document_cached,
                             is_document, parse_direct_edit, requested_document_format, resolve_output_mode,
