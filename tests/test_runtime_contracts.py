@@ -6,6 +6,99 @@ from unittest.mock import Mock
 from runtime_contracts import (Capability, CompatibilityError, CompatibilityRegistry,
     EvidenceScope, ExistingTextAdapter, GIB, GPT_NATIVE_PROBE_MIN_RAM,
     HardwareSnapshot, ModelContract, ResourcePolicy, ValidationEvidence)
+from runtime_contracts import NativePayloadError, validate_windows_payload_paths, validate_native_payload
+
+
+class NativePayloadRegressions(unittest.TestCase):
+    def contract(self):
+        row={'destination':'engine.exe','sha256':'a'*64,'bytes':23,'origin':'fixture:independently-reviewed',
+             'version':'fixture-v1','license':'fixture-license','provenanceReceipt':'b'*64,
+             'redistributionReceipt':'c'*64,'dynamicLoadsReviewed':True,'imports':[]}
+        return {'version':1,'sourceCommit':'d'*40,'platform':'windows-x64','profile':'cpu','files':[row]}
+
+    def measured(self,contract):
+        return {r['destination']:{'sha256':r['sha256'],'bytes':r['bytes']} for r in contract['files']}
+
+    def verify(self,contract,actual=None,**kwargs):
+        return validate_native_payload(contract,self.measured(contract) if actual is None else actual,
+            verify_receipt=kwargs.get('verify_receipt',lambda kind,row:True),
+            verify_system_library=kwargs.get('verify_system_library',lambda name,kind:False))
+
+    def test_duplicate_windows_paths_rejected_even_with_identical_hash(self):
+        for names in [('msvcp140.dll','MSVCP140.dll'),('a/b.dll','a\\B.dll'),('x/e\u0301.dll','x/é.dll')]:
+            with self.subTest(names=names),self.assertRaises(NativePayloadError):validate_windows_payload_paths(names)
+
+    def test_conflicting_native_binary_hashes_cannot_choose_overwrite_order(self):
+        c=self.contract();other=dict(c['files'][0],destination='ENGINE.exe',sha256='e'*64);c['files'].append(other)
+        with self.assertRaises(NativePayloadError):self.verify(c)
+
+    def test_unsafe_windows_paths_and_parent_aliases_rejected(self):
+        for path in ['../x','/absolute','C:/x','x:stream','CON.txt','COM¹.txt','con .txt','a/../b','a./b','a /b','a//b','a/*','PROGRA~1/x','x\x00.dll']:
+            with self.subTest(path=path),self.assertRaises(NativePayloadError):validate_windows_payload_paths([path])
+        with self.assertRaises(NativePayloadError):validate_windows_payload_paths(['a','A/b.dll'])
+
+    def test_missing_direct_delay_and_dynamic_dependencies_rejected(self):
+        for kind in ('direct','delay','dynamic'):
+            c=self.contract();c['files'][0]['imports']=[{'library':'missing.dll','kind':kind}]
+            with self.subTest(kind=kind),self.assertRaises(NativePayloadError):self.verify(c)
+
+    def test_unapproved_system_dependency_is_not_assumed_present(self):
+        c=self.contract();c['files'][0]['imports']=[{'library':'kernel32.dll','kind':'direct'}]
+        with self.assertRaises(NativePayloadError):self.verify(c)
+        result=self.verify(c,verify_system_library=lambda name,kind:name=='kernel32.dll')
+        self.assertFalse(result['cleanWindowsVerified'])
+
+    def test_native_identity_size_and_hash_must_match_actual_measurement(self):
+        c=self.contract()
+        for row in [{'sha256':'f'*64,'bytes':23},{'sha256':'a'*64,'bytes':24}]:
+            with self.subTest(row=row),self.assertRaises(NativePayloadError):self.verify(c,{'engine.exe':row})
+
+    def test_missing_or_unmanifested_executable_is_rejected(self):
+        c=self.contract();actual=self.measured(c)
+        with self.assertRaises(NativePayloadError):self.verify(c,{})
+        actual['unreviewed.dll']={'sha256':'e'*64,'bytes':24}
+        with self.assertRaises(NativePayloadError):self.verify(c,actual)
+
+    def test_inline_legal_and_provenance_flags_are_not_approval(self):
+        c=self.contract();c['files'][0]['legalClearance']=True
+        with self.assertRaises(NativePayloadError):self.verify(c)
+        c=self.contract()
+        for value in (False,1,'APPROVED'):
+            with self.subTest(value=value),self.assertRaises(NativePayloadError):self.verify(c,verify_receipt=lambda kind,row:value)
+
+    def test_no_external_verifiers_fails_closed(self):
+        c=self.contract()
+        with self.assertRaises(NativePayloadError):validate_native_payload(c,self.measured(c))
+
+    def test_dynamic_loader_review_is_required(self):
+        c=self.contract();c['files'][0]['dynamicLoadsReviewed']=False
+        with self.assertRaises(NativePayloadError):self.verify(c)
+
+    def test_ambiguous_loader_basename_in_two_directories_rejected(self):
+        c=self.contract();c['files']=[dict(c['files'][0],destination=path) for path in ('cpu/shared.dll','other/shared.dll')]
+        with self.assertRaises(NativePayloadError):self.verify(c)
+
+    def test_complete_transitive_cycle_is_static_not_native_acceptance(self):
+        c=self.contract();c['files'][0]['imports']=[{'library':'helper.dll','kind':'delay'}]
+        c['files'].append(dict(c['files'][0],destination='helper.dll',sha256='e'*64,imports=[{'library':'engine.exe','kind':'dynamic'}]))
+        result=self.verify(c)
+        self.assertEqual(result['nativeFiles'],2)
+        self.assertFalse(result['nativeInferenceVerified'])
+        self.assertFalse(result['cleanWindowsVerified'])
+
+    def test_cpu_cuda_profile_cannot_mix_silently(self):
+        c=self.contract();c['profile']='cuda'
+        with self.assertRaises(NativePayloadError):self.verify(c)
+        c=self.contract();c['files'].append(dict(c['files'][0],destination='ggml-cuda.dll'))
+        with self.assertRaises(NativePayloadError):self.verify(c)
+
+    def test_spec_rejects_collisions_before_collect(self):
+        import ast
+        from pathlib import Path
+        tree=ast.parse((Path(__file__).resolve().parents[1]/'Offline GPT.spec').read_text(encoding='utf-8'))
+        calls={n.func.id:n.lineno for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)}
+        self.assertIn('validate_windows_payload_paths',calls)
+        self.assertLess(calls['validate_windows_payload_paths'],calls['COLLECT'])
 
 
 class CompatibilityTests(unittest.TestCase):

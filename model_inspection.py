@@ -102,7 +102,8 @@ def inspect_gguf(path,*,cancel_event=None):
             if not re.fullmatch(r'[a-z0-9_\-]+(?:\.[a-z0-9_\-]+)*',key) or key in keys:
                 raise InspectionError('Invalid or duplicate GGUF metadata key')
             keys.add(key);value=r.value(r.number('I'))
-            if key in {'general.architecture','general.file_type','general.quantization_version','general.alignment',
+            if key=='general.name' and not isinstance(value,str):raise InspectionError('Model display name must be a string')
+            if key in {'general.name','general.architecture','general.file_type','general.quantization_version','general.alignment',
                        'general.license','tokenizer.ggml.model','tokenizer.ggml.tokens','split.count'} or key.endswith('.context_length'):
                 selected[key]=value
             elif key=='tokenizer.chat_template':

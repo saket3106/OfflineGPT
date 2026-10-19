@@ -57,6 +57,122 @@ class TestPerformanceAndLifecycle(unittest.TestCase):
         self.assertEqual(cfg["emergency_ram_threshold_mb"], 256)
 
 
+class ModelHealthIdentityRegressions(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+        import integrated_runtime as runtime
+        self.runtime_module = runtime
+        self.tmp = tempfile.TemporaryDirectory(prefix='model-health-fixture-')
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        cfg = dict(runtime.DEFAULT_CONFIG, gpt_oss_gguf=str(self.root/'selected.gguf'))
+        patches = [patch.object(runtime, 'APP_DIR', self.root), patch.object(runtime, 'load_config', return_value=cfg),
+                   patch.object(runtime, 'physical_memory_status', return_value={'available':8*1024**3,'total':16*1024**3,'pagefile_available':8*1024**3}),
+                   patch.object(runtime, 'available_cuda_memory', return_value=None)]
+        for item in patches:item.start();self.addCleanup(item.stop)
+        self.manager = runtime.EngineManager()
+        self.manager.vision_model_status = Mock(return_value={})
+        self.manager.lm_runtime._server_ready = Mock(return_value=False)
+        self.manager.lm_runtime._lms_path = Mock(return_value=self.root/'absent-cli')
+        self.manager.lm_runtime._bionic_path = Mock(return_value=self.root/'absent-external')
+
+    def model(self, name, arch='qwen3', path=None):
+        from test_model_inspection import fixture
+        path = path or self.root/'selected.gguf'
+        path.write_bytes(fixture([('general.name',8,name),('general.architecture',8,arch)]))
+        return path
+
+    def test_bundled_qwen_does_not_inherit_external_gpt_id(self):
+        self.model('Qwen3 8B')
+        result=self.manager.chat_status()
+        self.assertEqual(result['modelName'],'Qwen3 8B')
+        self.assertEqual(result['externalModelId'],'')
+        self.assertEqual(result['modelIdentitySource'],'untrusted_gguf_metadata')
+        self.assertFalse(result['modelInspection']['nativeCompatible'])
+        self.assertFalse(result['loaded'])
+
+    def test_gpt_oss_inspected_identity_and_restart(self):
+        self.model('GPT-OSS 20B','gpt-oss')
+        self.assertEqual(self.manager.chat_status()['modelName'],'GPT-OSS 20B')
+        restarted=self.runtime_module.EngineManager()
+        restarted.vision_model_status=self.manager.vision_model_status
+        self.assertEqual(restarted.chat_status()['modelName'],'GPT-OSS 20B')
+
+    def test_missing_model_overrides_old_passed_test(self):
+        self.manager.chat_test_state='passed'
+        self.manager.chat_load_state='ready'
+        result=self.manager.chat_status()
+        self.assertFalse(result['loaded'])
+        self.assertEqual(result['loadState'],'missing-model')
+        self.assertEqual(result['modelSelectionState'],'missing-model')
+        self.assertIn('Settings',result['modelSelectionMessage'])
+
+    def test_filename_cannot_grant_metadata_or_compatibility(self):
+        path=self.root/'GPT-OSS-20B-certified.gguf';path.write_bytes(b'not a model')
+        self.manager.cfg['gpt_oss_gguf']=str(path)
+        result=self.manager.chat_status()
+        self.assertEqual(result['modelSelectionState'],'unverified-file')
+        self.assertEqual(result['modelIdentitySource'],'selected_filename_unverified')
+        self.assertIsNone(result['modelInspection'])
+        self.assertTrue(result['modelInspectionError'])
+        self.assertFalse(result['loaded'])
+
+    def test_external_model_does_not_require_bundled_file_or_inspection(self):
+        from unittest.mock import patch
+        self.manager.cfg.update(chat_backend='lmstudio',chat_model='owner/external-model')
+        with patch('model_inspection.inspect_gguf',side_effect=AssertionError('Unrelated local model inspection')):
+            result=self.manager.chat_status()
+        self.assertEqual(result['modelName'],'owner/external-model')
+        self.assertEqual(result['modelIdentitySource'],'external_configuration')
+        self.assertEqual(result['modelPath'],'')
+        self.assertTrue(result['modelExists'])
+
+    def test_same_mtime_replaced_file_does_not_reuse_identity(self):
+        import os
+        path=self.model('Qwen A');stamp=path.stat()
+        self.assertEqual(self.manager.chat_status()['modelName'],'Qwen A')
+        replacement=self.model('OtherB',path=self.root/'new.gguf')
+        os.utime(replacement,ns=(stamp.st_atime_ns,stamp.st_mtime_ns));os.replace(replacement,path)
+        self.assertEqual(self.manager.chat_status()['modelName'],'OtherB')
+
+    def test_reload_selection_resets_old_test_even_without_live_runtime(self):
+        from unittest.mock import patch
+        self.manager.chat_test_state='passed';self.manager.chat_test_answer='old answer'
+        self.manager._model_inspection_cache['old']=(1,{'name':'old'})
+        updated=dict(self.manager.cfg,gpt_oss_gguf=str(self.root/'another.gguf'))
+        with patch.object(self.runtime_module,'load_config',return_value=updated):self.manager.reload()
+        self.assertEqual(self.manager.chat_test_state,'not-tested')
+        self.assertEqual(self.manager.chat_test_answer,'')
+        self.assertEqual(self.manager._model_inspection_cache,{})
+
+    def test_external_model_switch_unloads_old_selection_and_clears_test(self):
+        from unittest.mock import Mock, patch
+        self.manager.cfg.update(chat_backend='lmstudio',chat_model='old-model')
+        self.manager.chat_test_state='passed';self.manager.lm_runtime.unload=Mock()
+        updated=dict(self.manager.cfg,chat_model='new-model')
+        with patch.object(self.runtime_module,'load_config',return_value=updated):self.manager.reload()
+        self.manager.lm_runtime.unload.assert_called_once_with(stop_server=True)
+        self.assertEqual(self.manager.chat_status()['modelName'],'new-model')
+        self.assertEqual(self.manager.chat_test_state,'not-tested')
+
+    def test_healthy_previous_runtime_cannot_label_new_file_loaded(self):
+        from types import SimpleNamespace
+        self.model('New Qwen')
+        self.manager.runtime=SimpleNamespace(ready=True,model_path=str(self.root/'old.gguf'),projector_path='',_is_healthy=lambda:True)
+        self.manager.chat_load_state='ready'
+        result=self.manager.chat_status()
+        self.assertFalse(result['loaded'])
+        self.assertEqual(result['loadState'],'not-loaded')
+
+    def test_metadata_name_controls_are_removed_without_execution(self):
+        self.model('Qwen\n<script>not executable</script>')
+        result=self.manager.chat_status()
+        self.assertNotIn('\n',result['modelName'])
+        self.assertFalse(result['modelInspection']['nativeCompatible'])
+
+
 if __name__ == "__main__":
     unittest.main()
 

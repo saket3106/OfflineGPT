@@ -11,9 +11,114 @@ from enum import Enum
 import math
 import re
 from typing import Protocol
+from pathlib import PureWindowsPath
+import unicodedata
 
 GIB = 1024 ** 3
 GPT_NATIVE_PROBE_MIN_RAM = 15 * GIB // 2
+
+
+class NativePayloadError(ValueError):
+    """A native build/release input lacks an unambiguous verified identity."""
+
+
+def windows_payload_path(value):
+    """Conservative portable Windows destination, independent of host OS."""
+    if not isinstance(value, str) or not value or any(ord(c) < 32 for c in value):
+        raise NativePayloadError('Invalid Windows payload path')
+    path = PureWindowsPath(value)
+    parts = value.replace('\\', '/').split('/')
+    if path.drive or path.root or any(not p or p in {'.', '..'} or ':' in p or p.endswith((' ', '.')) or
+        re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])', p.split('.')[0].rstrip(' .').translate(str.maketrans('¹²³','123'))) or
+        any(c in p for c in '<>"|?*') for p in parts):
+        raise NativePayloadError('Unsafe or ambiguous Windows payload path')
+    if any(re.search(r'~[0-9]+(?:\.|$)', p) for p in parts):
+        raise NativePayloadError('DOS short-name payload aliases are unsupported')
+    return '/'.join(parts)
+
+
+def validate_windows_payload_paths(names):
+    """Reject duplicates even when bytes match; never choose overwrite order."""
+    normalized = []
+    seen = set()
+    for name in names:
+        portable = windows_payload_path(name)
+        key = unicodedata.normalize('NFC', portable).casefold()
+        if key in seen:
+            raise NativePayloadError('Duplicate Windows-equivalent payload path: ' + portable)
+        seen.add(key)
+        normalized.append(portable)
+    for key in seen:
+        parts = key.split('/')
+        if any('/'.join(parts[:i]) in seen for i in range(1, len(parts))):
+            raise NativePayloadError('Payload file conflicts with a parent directory')
+    return tuple(normalized)
+
+
+def validate_native_payload(contract, actual_payload, *, verify_receipt=None, verify_system_library=None):
+    """Pure native closure gate; externally verified receipts are mandatory.
+
+    actual_payload maps independently measured relative paths to sha256/bytes.
+    Receipt verifiers belong to a trusted build controller, never to downloaded
+    metadata. This does not inspect PE imports, grant redistribution rights or
+    assemble a package. A controller must independently measure imports (direct,
+    delayed and dynamic), verify origins/exports and supply those observations.
+    """
+    if not callable(verify_receipt) or not callable(verify_system_library):
+        raise NativePayloadError('Independent provenance, legal and system-library verification required')
+    if not isinstance(contract, dict) or set(contract) != {'version','sourceCommit','platform','profile','files'}:
+        raise NativePayloadError('Unknown or incomplete native contract')
+    if contract['version'] != 1 or type(contract['version']) is not int or contract['platform'] != 'windows-x64' or not isinstance(contract['profile'],str) or contract['profile'] not in {'cpu','cuda'}:
+        raise NativePayloadError('Unsupported native profile')
+    if not isinstance(contract['sourceCommit'], str) or not re.fullmatch('[0-9a-f]{40}', contract['sourceCommit']):
+        raise NativePayloadError('Exact accepted source identity required')
+    if not isinstance(contract['files'], list) or not contract['files'] or not isinstance(actual_payload, dict):
+        raise NativePayloadError('Complete independently measured native files required')
+    paths = validate_windows_payload_paths(row.get('destination') for row in contract['files'] if isinstance(row, dict))
+    if len(paths) != len(contract['files']):
+        raise NativePayloadError('Malformed native file record')
+    actual_paths = validate_windows_payload_paths(actual_payload)
+    measured = {p.casefold(): actual_payload[original] for original,p in zip(actual_payload,actual_paths)}
+    by_name = {}
+    for row,path in zip(contract['files'],paths):
+        required = {'destination','sha256','bytes','origin','version','license','provenanceReceipt','redistributionReceipt','imports','dynamicLoadsReviewed'}
+        if set(row) != required:
+            raise NativePayloadError('Incomplete or self-authorizing native identity')
+        if any(not isinstance(row[k], str) or not row[k].strip() for k in ('origin','version','license')):
+            raise NativePayloadError('Missing native origin, version or license')
+        for k in ('sha256','provenanceReceipt','redistributionReceipt'):
+            if not isinstance(row[k],str) or not re.fullmatch('[0-9a-f]{64}',row[k]):
+                raise NativePayloadError('Invalid exact native or approval identity')
+        if type(row['bytes']) is not int or row['bytes'] <= 0 or row['dynamicLoadsReviewed'] is not True:
+            raise NativePayloadError('Native size or dynamic-loader review missing')
+        if measured.get(path.casefold()) != {'sha256':row['sha256'],'bytes':row['bytes']}:
+            raise NativePayloadError('Native bytes differ from approved identity: '+path)
+        if not isinstance(row['imports'],list):
+            raise NativePayloadError('Native import observations required')
+        if verify_receipt('provenance',row) is not True or verify_receipt('redistribution',row) is not True:
+            raise NativePayloadError('Native provenance or redistribution is not independently approved')
+        base=path.rsplit('/',1)[-1].casefold()
+        if base in by_name:
+            raise NativePayloadError('Ambiguous native loader basename across directories')
+        by_name[base]=row
+    native_actual={p.casefold() for p in actual_paths if p.lower().endswith(('.exe','.dll','.pyd'))}
+    if native_actual != {p.casefold() for p in paths}:
+        raise NativePayloadError('Unapproved or missing executable native payload')
+    for row in contract['files']:
+        for dependency in row['imports']:
+            if not isinstance(dependency,dict) or set(dependency)!={'library','kind'} or dependency['kind'] not in {'direct','delay','dynamic'}:
+                raise NativePayloadError('Unmeasured native import kind')
+            name=windows_payload_path(dependency['library'])
+            if '/' in name:
+                raise NativePayloadError('Native dependency must have one loader basename')
+            if name.casefold() not in by_name and verify_system_library(name,dependency['kind']) is not True:
+                raise NativePayloadError('Unresolved native dependency: '+name)
+    has_cuda=any(n.startswith(('cudart','cublas','ggml-cuda')) for n in by_name)
+    if has_cuda != (contract['profile']=='cuda'):
+        raise NativePayloadError('CPU/CUDA profile does not match native payload')
+    return {'status':'STATIC_CONTRACT_VERIFIED','profile':contract['profile'],'nativeFiles':len(paths),
+            'nativeInferenceVerified':False,'cleanWindowsVerified':False,
+            'scope':'Externally approved hash/import contract only; real loader and application acceptance remain required'}
 
 
 class CompatibilityError(ValueError):

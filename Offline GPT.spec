@@ -2,6 +2,7 @@
 
 
 from PyInstaller.utils.hooks import collect_all
+from runtime_contracts import validate_windows_payload_paths
 voice_data=[];voice_binaries=[];voice_imports=[]
 for package in ['kokoro_onnx','espeakng_loader','phonemizer','onnxruntime']:
     data,binary,hidden=collect_all(package)
@@ -45,6 +46,9 @@ exe = EXE(
     entitlements_file=None,
     contents_directory='.',
 )
+# Fail before COLLECT can resolve duplicates by overwrite order. This protects
+# every ordinary scheduled build, without adding unapproved inference binaries.
+validate_windows_payload_paths([entry[0] for entry in a.binaries] + [entry[0] for entry in a.datas] + ['Offline GPT.exe'])
 coll = COLLECT(
     exe,
     a.binaries,

@@ -2,8 +2,8 @@
   "version": 1,
   "managed": {
     "Offline GPT.spec": {
-      "source": "fef89ae3da1cd474272801712459d50da8f543430a04faa9b36e6ffe416f8409",
-      "repository": "fef89ae3da1cd474272801712459d50da8f543430a04faa9b36e6ffe416f8409"
+      "source": "0bc1a2e3ad7f503e3d40c645900bc99f74b8baa5ee2f8145b25ced8ab5a510d5",
+      "repository": "0bc1a2e3ad7f503e3d40c645900bc99f74b8baa5ee2f8145b25ced8ab5a510d5"
     },
     "app.py": {
       "source": "5bb37b71d5173be9cd64cc4c8d979b6ce74b082c4eafd71ea728f4c07cb8fd89",
@@ -142,8 +142,8 @@
       "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
     },
     "frontend-source/src/main.jsx": {
-      "source": "ac1cd638eae4c6f173e847da23f905aabfb3d5edd58a66f9326965e60d576730",
-      "repository": "ac1cd638eae4c6f173e847da23f905aabfb3d5edd58a66f9326965e60d576730"
+      "source": "992816240762adefcb18e39f5efd9e58f363d6c50ba0dae1f6862a499cbd5836",
+      "repository": "992816240762adefcb18e39f5efd9e58f363d6c50ba0dae1f6862a499cbd5836"
     },
     "frontend-source/src/styles.css": {
       "source": "cd1b7096d98255ecc21ef9088e9a4351061d2455b33cc2945d5053510c35d926",
@@ -170,8 +170,8 @@
       "repository": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67"
     },
     "integrated_runtime.py": {
-      "source": "fbb92999e5d94dcb00cb4632debce145a0399313fad773e3ca65375c5e9224f8",
-      "repository": "fbb92999e5d94dcb00cb4632debce145a0399313fad773e3ca65375c5e9224f8"
+      "source": "63744e7f5fc3d408724dd065980dc2520c1a82f2bc13a2a2074beb9e35993c73",
+      "repository": "63744e7f5fc3d408724dd065980dc2520c1a82f2bc13a2a2074beb9e35993c73"
     },
     "intelligence.py": {
       "source": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3",
@@ -262,12 +262,12 @@
       "repository": "a2b7a217007ae4ff35090e01cfe295ecd3730b3e426d3cd37f45ba7f05a8e39b"
     },
     "tests/test_performance_and_lifecycle.py": {
-      "source": "be0e206137281db83491bb8917ee5ac31edfecf82551b612f12bdc7f956febbf",
-      "repository": "be0e206137281db83491bb8917ee5ac31edfecf82551b612f12bdc7f956febbf"
+      "source": "665b4cb3de5393d747693418ccf16051a309e14fb80f117343e136eab3539327",
+      "repository": "665b4cb3de5393d747693418ccf16051a309e14fb80f117343e136eab3539327"
     },
     "tests/test_premium_workspace.py": {
-      "source": "db28cf6981673917aab92e66c4ea29a3674e4c4ccc5e565b14362a952e30708c",
-      "repository": "db28cf6981673917aab92e66c4ea29a3674e4c4ccc5e565b14362a952e30708c"
+      "source": "281b24b3ca69bab04649d7cf4688f0a5b4ec367158c0abb8ae5866636f0c1243",
+      "repository": "281b24b3ca69bab04649d7cf4688f0a5b4ec367158c0abb8ae5866636f0c1243"
     },
     "tests/test_reliability_repair.py": {
       "source": "47959f264127106a5bafd68934c354bdb30fb80f5ca276bbe9cb1f4d33d53c94",
@@ -338,20 +338,20 @@
       "repository": "6cf6142c52470b915889fefb43a549aae3c93f67a63e03d39ea29411ab9a5556"
     },
     "runtime_contracts.py": {
-      "source": "7686e672a3801cbb256d7dfb65c2ee8ed6d5470a846e41f02dd74da4c1163a1c",
-      "repository": "7686e672a3801cbb256d7dfb65c2ee8ed6d5470a846e41f02dd74da4c1163a1c"
+      "source": "350d1d41d4b2e0ffc72e4fbf5e904a71b16ca4c74efcbf62c3eea6986e6a2ead",
+      "repository": "350d1d41d4b2e0ffc72e4fbf5e904a71b16ca4c74efcbf62c3eea6986e6a2ead"
     },
     "tests/test_runtime_contracts.py": {
-      "source": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2",
-      "repository": "f93c38d74fd93ecf0cf08a6ef6404a24d803d77bc643c75ec502073775bb4da2"
+      "source": "dc4c5f6c9ab60fec94cfd6714a817150d783e8fb55f91460a01d94d24431c22d",
+      "repository": "dc4c5f6c9ab60fec94cfd6714a817150d783e8fb55f91460a01d94d24431c22d"
     },
     "model_inspection.py": {
-      "source": "a71a173739fe21d5041b1c8aeb76d754de58681ed1cb55b51220915f4e1e1edb",
-      "repository": "a71a173739fe21d5041b1c8aeb76d754de58681ed1cb55b51220915f4e1e1edb"
+      "source": "bf1d55a60c61c6651adc5b826e003ea1dec457abb41dfa454cdc3c8e1e2cb578",
+      "repository": "bf1d55a60c61c6651adc5b826e003ea1dec457abb41dfa454cdc3c8e1e2cb578"
     },
     "tests/test_model_inspection.py": {
-      "source": "9d83c8ceea9240c8697d0e565deaf255b0a5e425d3a6df72cbcdb5756d5e441b",
-      "repository": "9d83c8ceea9240c8697d0e565deaf255b0a5e425d3a6df72cbcdb5756d5e441b"
+      "source": "9f68dfccfa21d2da4c6641fb6b63c7c8195e3225f7b249cd9ba0068ee4018dfe",
+      "repository": "9f68dfccfa21d2da4c6641fb6b63c7c8195e3225f7b249cd9ba0068ee4018dfe"
     }
   },
   "protected": {

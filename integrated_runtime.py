@@ -1585,6 +1585,7 @@ class EngineManager:
         previous = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
         previous_backend = self.cfg.get("chat_backend", "bundled")
         previous_context = self.cfg.get("chat_context")
+        previous_external_model = self.cfg.get("chat_model", "")
         self.cfg = load_config()
         self.model_lifecycle_mode = self.cfg.get("model_lifecycle_mode", "balanced")
         self.model_keepalive_seconds = self.cfg.get("model_keepalive_seconds", 90)
@@ -1593,7 +1594,17 @@ class EngineManager:
         self._vision_catalog_cache = (0.0, [], "")
         current = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
         current_backend = self.cfg.get("chat_backend", "bundled")
-        if (previous != current or previous_backend != current_backend or previous_context != self.cfg.get("chat_context")) and self.runtime:
+        external_changed = (current_backend == "lmstudio" and previous_external_model != self.cfg.get("chat_model", ""))
+        selection_changed = previous != current or previous_backend != current_backend or previous_context != self.cfg.get("chat_context") or external_changed
+        if selection_changed:
+            self._model_inspection_cache.clear()
+            self.chat_test_state = "not-tested"
+            self.chat_test_message = "Run a response test to verify the selected model."
+            self.chat_test_answer = ""
+            self.chat_test_time = ""
+            self.chat_last_error = ""
+            self.chat_load_state = "not-loaded"
+        if selection_changed and self.runtime:
             self.last_unload_reason = "Model, backend or context settings changed"
             self.runtime.stop()
             self.loaded_model = ""
@@ -1603,7 +1614,7 @@ class EngineManager:
             self.active_gpu_layers = None
             self.requested_gpu_layers = None
             self.chat_memory_profile = None
-        if previous_backend != current_backend:
+        if previous_backend != current_backend or external_changed:
             try:
                 self.lm_runtime.unload(stop_server=True)
             except Exception:
@@ -1821,37 +1832,44 @@ class EngineManager:
         self.vision_test_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
     def chat_status(self):
+        backend = self.cfg.get("chat_backend", "bundled")
         try:
-            model_path = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
+            model_path = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if backend == "bundled" and self.cfg.get("gpt_oss_gguf") else None
             model_exists = bool(model_path and model_path.is_file())
             model_size = model_path.stat().st_size if model_exists else 0
         except OSError:
             model_path, model_exists, model_size = None, False, 0
         inspection = None
+        inspection_error = ""
         if model_exists and model_path and str(model_path).lower().endswith(".gguf"):
             try:
-                mtime = model_path.stat().st_mtime_ns
+                import model_inspection
+                _, info = model_inspection.ordinary_file(model_path)
+                observation = model_inspection.identity(info)
                 cached = getattr(self, "_model_inspection_cache", {}).get(str(model_path))
-                if cached and cached[0] == mtime:
+                if cached and cached[0] == observation:
                     inspection = cached[1]
                 else:
-                    import model_inspection
                     res = model_inspection.inspect_gguf(model_path)
                     meta = res.get("metadata", {})
                     arch = meta.get("general.architecture", "unknown")
                     ctx = meta.get(f"{arch}.context_length", meta.get("general.context_length", 4096))
                     inspection = {
+                        "name": "".join(c for c in str(meta.get("general.name", "")) if c.isprintable())[:160].strip(),
                         "architecture": str(arch),
                         "contextLength": int(ctx) if str(ctx).isdigit() or isinstance(ctx, (int, float)) else 4096,
                         "tensorCount": int(res.get("tensorCount", 0)),
-                        "warnings": list(res.get("warnings", []))
+                        "warnings": list(res.get("warnings", [])),
+                        "headerMetadataSha256": res.get("headerMetadataSha256"),
+                        "nativeCompatible": False,
+                        "identitySource": "untrusted_gguf_metadata",
                     }
                     if hasattr(self, "_model_inspection_cache"):
-                        self._model_inspection_cache[str(model_path)] = (mtime, inspection)
-            except Exception:
+                        self._model_inspection_cache[str(model_path)] = (observation, inspection)
+            except Exception as exc:
                 inspection = None
+                inspection_error = str(exc)
         memory = physical_memory_status()
-        backend = self.cfg.get("chat_backend", "bundled")
         try:
             lm_cli_present = self.lm_runtime._lms_path().is_file()
         except Exception:
@@ -1866,16 +1884,40 @@ class EngineManager:
         bundled_present = (APP_DIR / "llama-server.exe").is_file() and all((APP_DIR / name).is_file() for name in runtime_files)
         runtime_present = ((lm_cli_present and bionic_present) or lm_server_running) if backend == "lmstudio" else bundled_present
         loaded = (self.lm_runtime.model_is_loaded() if backend == "lmstudio" else bool(self.runtime and self.runtime.ready)) and self.chat_load_state == "ready"
+        if backend == "bundled" and loaded:
+            loaded = bool(model_exists and str(model_path.resolve()) == str(getattr(self.runtime, "model_path", "")) and not getattr(self.runtime, "projector_path", ""))
         load_state = self.chat_load_state
         if load_state == "ready" and not loaded:
             load_state = "not-loaded"
+        if backend == "lmstudio":
+            model_name = str(self.lm_runtime.loaded_model if loaded else self.cfg.get("chat_model", "")).strip()
+            model_exists = bool(model_name)
+            selection_state = "external-selected" if model_exists else "missing-model"
+            identity_source = "external_runtime" if loaded else "external_configuration"
+        else:
+            model_name = inspection.get("name", "") if inspection else ""
+            if not model_name and model_path:
+                model_name = "".join(c for c in model_path.name if c.isprintable())[:160]
+            selection_state = "inspected" if inspection else "unverified-file" if model_exists else "missing-model"
+            identity_source = "untrusted_gguf_metadata" if inspection and inspection.get("name") else "selected_filename_unverified"
+        if not model_exists:
+            load_state = "missing-model"
+        guidance = ("Choose an existing local GGUF in Settings → Chat, then save and run a response test."
+                    if backend == "bundled" and not model_exists else
+                    "Select the external backend's model ID in Settings → Chat." if not model_exists else
+                    "Metadata inspection does not establish model compatibility. Run a response test.")
         context = max(2048, min(8192, int(self.cfg.get("chat_context", 4096)))) if backend == "lmstudio" else (self.runtime.context if loaded and self.runtime else max(2048, min(4096, int(self.cfg.get("chat_context", 4096)))))
         try:
             bionic_pid = self.lm_runtime.bionic_process.pid if self.lm_runtime.bionic_process and self.lm_runtime.bionic_process.poll() is None else None
         except Exception:
             bionic_pid = None
         return {
-            "modelName": self.cfg.get("chat_model", "openai/gpt-oss-20b"),
+            "modelName": model_name or "No model selected",
+            "modelIdentitySource": identity_source,
+            "modelSelectionState": selection_state,
+            "modelSelectionMessage": guidance,
+            "modelInspectionError": inspection_error,
+            "externalModelId": str(self.cfg.get("chat_model", "")) if backend == "lmstudio" else "",
             "modelPath": str(model_path) if model_path else "",
             "modelExists": model_exists,
             "modelSizeBytes": model_size,

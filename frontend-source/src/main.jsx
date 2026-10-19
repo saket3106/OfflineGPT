@@ -93,6 +93,7 @@ function useDismissiblePanel(open, setOpen, panelRef) {
 }
 
 function modelHealthSummary(modelHealth = {}) {
+  if (modelHealth.modelSelectionState === "missing-model" || modelHealth.loadState === "missing-model") return { label: "Select a model", tone: "idle" };
   if (["error", "failed"].includes(modelHealth.loadState) || modelHealth.testState === "failed" || (modelHealth.lastError && !modelHealth.loaded && modelHealth.testState !== "passed")) return { label: "Needs attention", tone: "error" };
   if (["loading", "testing"].includes(modelHealth.loadState) || modelHealth.testState === "testing") return { label: "Loading model", tone: "loading" };
   if (modelHealth.loaded) return { label: "Model ready", tone: "ready" };
@@ -102,9 +103,8 @@ function modelHealthSummary(modelHealth = {}) {
 }
 
 function modelDisplayName(modelHealth = {}) {
-  const raw = String(modelHealth.modelName || "Local GPT-OSS").split("/").pop();
-  if (/gpt[-_]?oss[-_]?20b/i.test(raw)) return "GPT-OSS 20B";
-  return raw.replace(/[-_]+/g, " ");
+  if (modelHealth.modelSelectionState === "missing-model") return "Select a model";
+  return String(modelHealth.modelName || "Local model");
 }
 
 function formatBytes(bytes) {
@@ -133,7 +133,7 @@ function ModelSelector({ modelHealth, onRefresh, onOpenSettings }) {
         {context > 0 && <div><span>Context window</span><strong>{context.toLocaleString()} tokens</strong></div>}
         {modelHealth.inferenceMode && <div><span>Inference</span><strong>{modelHealth.inferenceMode}</strong></div>}
       </div>
-      <p>Model IDs and engine options are managed in local Chat settings.</p>
+      <p>{modelHealth.modelSelectionMessage || "Model selection and engine options are managed in local Chat settings."}</p>
       <button type="button" className="popover-action" onClick={() => { setOpen(false); onOpenSettings?.(); }}>Open model settings <ArrowUpRight size={14} /></button>
     </section>}
   </div>;
@@ -2097,17 +2097,18 @@ const ModelStatusSection = memo(function ModelStatusSection({ modelHealth = {}, 
   const visionChecking = modelHealth.visionTestState === "testing";
   const activeLayers = modelHealth.inferenceMode || "Automatic GPU placement";
   const layerDetail = `${modelHealth.effectiveContext ?? modelHealth.context ?? 2048} token context · up to ${modelHealth.maxOutputTokens ?? 1200} answer tokens`;
-  const title = failed ? "Model needs attention" : checking ? "Checking local model…" : modelHealth.loaded ? "Model is loaded and ready" : modelHealth.testState === "passed" ? "Last response test passed" : modelHealth.modelExists && modelHealth.runtimePresent ? "Model files are ready to check" : "Model setup is incomplete";
-  const message = modelHealth.lastError || modelHealth.testMessage || (modelHealth.loaded ? `GPT-OSS is ready through ${modelHealth.engineName || "the local engine"}.` : "Run a short local response test to verify model loading and generation.");
+  const missing = modelHealth.modelSelectionState === "missing-model";
+  const title = missing ? "Select a local model to begin" : failed ? "Model needs attention" : checking ? "Checking local model…" : modelHealth.loaded ? `${modelDisplayName(modelHealth)} is loaded and ready` : modelHealth.testState === "passed" ? "Last response test passed" : modelHealth.modelExists && modelHealth.runtimePresent ? "Model files are ready to check" : "Model setup is incomplete";
+  const message = modelHealth.lastError || (missing ? modelHealth.modelSelectionMessage : modelHealth.testMessage) || modelHealth.modelSelectionMessage || "Run a short local response test to verify model loading and generation.";
   return (
     <section className="settings-section model-health-section">
-      <div className="section-kicker"><Activity size={15} /> Local GPT-OSS health</div>
+      <div className="section-kicker"><Activity size={15} /> Local model health</div>
       <div className={`model-health-banner ${failed ? "is-error" : checking ? "is-checking" : modelHealth.loaded || modelHealth.testState === "passed" ? "is-ready" : ""}`}>
         <span className="model-health-indicator" />
         <div><strong>{title}</strong><p>{message}</p></div>
       </div>
       <div className="model-health-grid">
-        <div className="model-health-card"><small>GGUF model file</small><strong>{modelHealth.modelExists ? (modelHealth.modelInspection?.architecture ? `${modelHealth.modelInspection.architecture} · Available` : "Available") : "Missing"}</strong><span>{modelHealth.modelInspection?.contextLength ? `${modelHealth.modelInspection.contextLength} ctx · ` : ""}{size(modelHealth.modelSizeBytes)}{modelHealth.modelPath ? ` · ${modelHealth.modelPath.split(/[\\/]/).pop()}` : ""}</span></div>
+        <div className="model-health-card"><small>{modelHealth.backend === "lmstudio" ? "External model selection" : "GGUF model file"}</small><strong>{modelHealth.backend === "lmstudio" ? modelDisplayName(modelHealth) : modelHealth.modelExists ? (modelHealth.modelInspection?.architecture ? `${modelHealth.modelInspection.architecture} · Available` : "Unverified file") : "Missing"}</strong><span>{modelHealth.modelInspection?.contextLength ? `${modelHealth.modelInspection.contextLength} ctx · ` : ""}{modelHealth.backend === "lmstudio" ? "Managed by the selected external local backend" : size(modelHealth.modelSizeBytes)}{modelHealth.modelPath ? ` · ${modelHealth.modelPath.split(/[\\/]/).pop()}` : ""}</span></div>
         <div className="model-health-card"><small>Chat engine</small><strong>{modelHealth.runtimePresent ? (modelHealth.backend === "lmstudio" ? "LM Studio selected" : "Offline GPT engine available") : "Not found"}</strong><span>{modelHealth.backend === "lmstudio" ? (modelHealth.serverRunning ? "External local engine active" : "External local engine starts when needed") : (modelHealth.gpuBackendPresent ? "Bundled CUDA runtime · automatic placement" : "Bundled runtime files are incomplete")}</span></div>
         <div className="model-health-card"><small>Free system RAM</small><strong>{size(modelHealth.freeRamBytes)}</strong><span>of {size(modelHealth.totalRamBytes)} · {size(modelHealth.pagefileAvailableBytes)} paging headroom</span></div>
         <div className="model-health-card"><small>Free GPU memory</small><strong>{size(modelHealth.freeGpuBytes)}</strong><span>GPT-OSS, Qwen3-VL, and FLUX release the GPU before the next model loads.</span></div>
@@ -2240,7 +2241,7 @@ const SettingsDialog = memo(function SettingsDialog({ bridge, open, setOpen, the
           <div className="settings-content">
             {activeSection === "Chat" && <section className="settings-section"><div className="section-kicker"><Activity size={15} /> Local chat</div>
               {field("Chat engine", "chat_backend", { options: CHAT_BACKEND_OPTIONS, hint: "Offline GPT runs the bundled GPT-OSS model on this PC. LM Studio remains available if you choose it explicitly." })}
-              {field("Local GPT-OSS GGUF file", "gpt_oss_gguf", { browseKind: "file", hint: "The built-in engine loads this model directly from the app package." })}
+              {field("Local GGUF model file", "gpt_oss_gguf", { browseKind: "file", hint: "Select an existing local model. Metadata inspection identifies the file; runtime compatibility requires a response test." })}
               {settings.chat_backend === "lmstudio" && <>{field("LM Studio model ID", "chat_model")}{field("LM Studio local CLI", "lms_exe", { browseKind: "file", hint: "Only needed when the optional LM Studio engine is selected." })}</>}
               {field("Model memory mode", "model_lifecycle_mode", { options: LIFECYCLE_OPTIONS, hint: "Balanced keeps GPT-OSS resident between turns and unloads when idle or memory is low. Low RAM saves memory for other apps." })}
               {(settings.model_lifecycle_mode === "balanced" || !settings.model_lifecycle_mode) && field("Idle unload timeout (seconds)", "model_keepalive_seconds", { type: "number", hint: "How many seconds to keep the model loaded while waiting for your next prompt (default: 90)." })}

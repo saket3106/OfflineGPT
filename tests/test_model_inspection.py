@@ -71,6 +71,15 @@ class InspectionTests(unittest.TestCase):
     def test_missing_architecture_tokenizer_and_template_are_explicit(self):
         result=self.inspect(fixture([]));self.assertEqual(len(result['warnings']),3)
 
+    def test_display_name_is_reported_but_never_grants_compatibility(self):
+        result=self.inspect(fixture([('general.name',8,'Untrusted Display Name')]))
+        self.assertEqual(result['metadata']['general.name'],'Untrusted Display Name')
+        self.assertFalse(result['nativeCompatible'])
+        self.assertEqual(result['tensorDataIntegrity'],'NOT_VERIFIED')
+
+    def test_non_string_display_name_is_rejected(self):
+        with self.assertRaises(m.InspectionError):self.inspect(fixture([('general.name',7,True)]))
+
     def test_nested_arrays_are_read_bounded_without_retaining_values(self):
         result=self.inspect(fixture([('tokenizer.ggml.tokens',9,(9,[(8,['one']),(8,['two'])]))]))
         self.assertEqual(result['metadata']['tokenizer.ggml.tokens'],{'arrayType':9,'count':2})

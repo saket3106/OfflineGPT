@@ -187,4 +187,29 @@ class PremiumWorkspaceRegression(unittest.TestCase):
             manager._unload_chat.assert_called_once()
 
 
+class ModelIdentityPresentationTests(unittest.TestCase):
+    def test_real_frontend_helpers_preserve_identity_and_missing_guidance(self):
+        import re
+        import shutil
+        import subprocess
+        node=shutil.which('node')
+        if not node:self.skipTest('Node is required for actual frontend helper execution')
+        source=(Path(__file__).resolve().parents[1]/'frontend-source/src/main.jsx').read_text(encoding='utf-8')
+        functions=[]
+        for name in ('modelDisplayName','modelHealthSummary'):
+            match=re.search(r'function '+name+r'\([^\n]+\) \{.*?\n\}',source,re.S)
+            self.assertIsNotNone(match);functions.append(match.group())
+        cases=[{'modelName':'Qwen3 8B','backend':'bundled'},
+               {'modelName':'GPT-OSS 20B','backend':'bundled'},
+               {'modelName':'owner/external-model','backend':'lmstudio'},
+               {'modelName':'old-model','modelSelectionState':'missing-model','loaded':True,'testState':'passed'},
+               {'modelName':'not-gpt-oss-20b-certified','backend':'bundled'}]
+        script='\n'.join(functions)+'\nconst fs=require("fs");const cases=JSON.parse(fs.readFileSync(0,"utf8"));console.log(JSON.stringify(cases.map(x=>({name:modelDisplayName(x),health:modelHealthSummary(x)}))));'
+        result=subprocess.run([node,'-e',script],input=json.dumps(cases),capture_output=True,text=True,timeout=15,check=True)
+        values=json.loads(result.stdout)
+        self.assertEqual([v['name'] for v in values],['Qwen3 8B','GPT-OSS 20B','owner/external-model','Select a model','not-gpt-oss-20b-certified'])
+        self.assertEqual(values[3]['health']['label'],'Select a model')
+        self.assertNotEqual(values[3]['health']['tone'],'ready')
+
+
 if __name__ == '__main__': unittest.main()
