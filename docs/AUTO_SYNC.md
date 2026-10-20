@@ -93,9 +93,19 @@ Private test logs may contain diagnostic fixture content and must not be synced.
 - Remote identity and concurrent changes are checked; ordinary non-force push
   is used. Lost push acknowledgements are reconciled against the exact remote
   commit, without creating duplicate commits.
-- The actual GitHub repository must remain private, unarchived and writable by
-  the configured authentication. Unknown or changed policy blocks publication
-  before copying or committing; the manager never changes visibility itself.
+- Version-1 configurations require a private, unarchived, writable GitHub
+  repository. Version 2 permits an explicitly owner-reviewed **public source-only**
+  repository using `publicationPolicy` with exactly `repositoryId` (positive
+  numeric GitHub ID), `visibility: "public"` and `scope: "source-only"`. The
+  credential-free configured remote still pins the owner/name and development
+  branch. Public identity, visibility, disabled/archive state and push permission
+  must match on every publication; missing evidence and network failures block.
+  This opt-in never authorizes binary/public Releases, installation, visibility
+  changes, force pushes or bypassing content, dependency, licensing, index or CI
+  checks. Existing configurations are not silently migrated. Review and accept
+  the controller change through the narrow repository-owned maintenance process,
+  matching remote CI and versioned runtime adoption before changing configuration.
+  Keep the legacy periodic tasks disabled in on-demand operating mode.
 - Network failures retry with backoff, at most eight times. Conflicts, integrity
   failures and ambiguous local mutations block rather than retrying blindly.
 - Interrupted APPLYING/STAGING/COMMITTING phases require retained-journal and Git

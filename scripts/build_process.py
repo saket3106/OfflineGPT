@@ -21,6 +21,33 @@ class STARTUP(C.Structure):
 class STARTUPEX(C.Structure):_fields_=[('startup',STARTUP),('attributes',C.c_void_p)]
 class INFO(C.Structure):_fields_=[('process',W.HANDLE),('thread',W.HANDLE),('pid',W.DWORD),('tid',W.DWORD)]
 
+def _terminate_owned_job(kernel,job,root_process,*,clock=None,sleep=None):
+    """Wait for the entire owned job, not merely its root, within five seconds.
+
+    Windows termination can return before descendants release inherited files.
+    Keep the Job Object open until accounting proves the tree is empty. The
+    caller must close handles even when cleanup fails, retaining KILL_ON_CLOSE.
+    This helper never calls the cancelled monitor or operates on unrelated PIDs.
+    """
+    clock=clock or time.monotonic;sleep=sleep or time.sleep
+    deadline=clock()+5.0
+    if not kernel.TerminateJobObject(job,2):
+        raise ProcessError('TerminateJobObject failed during cleanup: '+str(C.get_last_error()))
+    if root_process:
+        wait=kernel.WaitForSingleObject(root_process,max(0,int((deadline-clock())*1000)))
+        if wait!=0:
+            raise ProcessError('Owned root cleanup wait failed or exceeded deadline: '+str(wait))
+    accounting=ACCOUNTING()
+    while True:
+        if not kernel.QueryInformationJobObject(job,1,C.byref(accounting),C.sizeof(accounting),None):
+            raise ProcessError('Owned job cleanup accounting failed: '+str(C.get_last_error()))
+        if accounting.active==0:return
+        remaining=deadline-clock()
+        if remaining<=0:
+            raise ProcessError('Owned descendants remained after cleanup deadline; recovery required')
+        sleep(min(.05,remaining))
+
+
 def run(command,cwd,env,log,seconds,monitor=lambda:None):
     if os.name!='nt':raise ProcessError('Windows Job Object adapter required')
     if not 0<seconds<=600:raise ProcessError('Invalid bounded process budget')
@@ -64,7 +91,10 @@ def run(command,cwd,env,log,seconds,monitor=lambda:None):
             finally:
                 for handle in handles:os.set_handle_inheritable(handle,False)
             if k.ResumeThread(info.thread)==0xFFFFFFFF:raise ProcessError('Could not resume owned process')
-            while k.WaitForSingleObject(info.process,100)==0x102:
+            while True:
+                waited=k.WaitForSingleObject(info.process,100)
+                if waited==0:break
+                if waited!=0x102:raise ProcessError('Owned process wait failed: '+str(waited))
                 monitor()
                 if time.monotonic()-started>seconds:raise ProcessError('Build phase exceeded its time budget')
             code=W.DWORD();require(k.GetExitCodeProcess(info.process,C.byref(code)),'Exit status')
@@ -78,9 +108,10 @@ def run(command,cwd,env,log,seconds,monitor=lambda:None):
             result={'returnCode':code.value,'elapsedSeconds':time.monotonic()-started,'jobProcesses':accounting.total,'remainingOwnedProcesses':accounting.active,'cpuSeconds':(accounting.user+accounting.kernel)/10**7}
             success=True
     finally:
-        if not success:k.TerminateJobObject(job,2)
-        if info.process:k.WaitForSingleObject(info.process,5000)
-        if attributes:k.DeleteProcThreadAttributeList(attributes)
-        for handle in (info.thread,info.process,job):
-            if handle:k.CloseHandle(handle)
+        try:
+            if not success:_terminate_owned_job(k,job,info.process)
+        finally:
+            if attributes:k.DeleteProcThreadAttributeList(attributes)
+            for handle in (info.thread,info.process,job):
+                if handle:k.CloseHandle(handle)
     return result

@@ -53,11 +53,31 @@ def exclusive(path):
     try:yield
     finally:stream.close()
 
+def publication_policy(cfg):
+    """Public source requires an explicit versioned exact-repository opt-in.
+
+    This does not authorize binaries, releases, visibility changes or installation.
+    Existing version-1 configurations retain the private-only policy.
+    """
+    version=cfg.get('version')
+    if type(version) is not int or version not in {1,2}:raise Error('Unsupported configuration version')
+    if version==1:
+        if 'publicationPolicy' in cfg:raise Error('Version 1 remains private-only')
+        return None
+    policy=cfg.get('publicationPolicy')
+    if (not isinstance(policy,dict) or set(policy)!={'repositoryId','visibility','scope'}
+        or type(policy['repositoryId']) is not int or policy['repositoryId']<=0
+        or policy['visibility']!='public' or policy['scope']!='source-only'):
+        raise Error('Explicit exact-repository public source-only review required')
+    return dict(policy)
+
 class Manager:
     def __init__(self,config, *, local_fixture=False):
         self.config_path=Path(config).resolve();self.cfg=sync.load(self.config_path)
         expected={'version','source','repository','stateRoot','python','git','branch','remoteUrl','debounceSeconds','testProfile'}
-        if set(self.cfg)!=expected or self.cfg['version']!=1:raise Error('Unsupported or incomplete private configuration')
+        self.publication_policy=publication_policy(self.cfg)
+        if self.publication_policy is not None:expected.add('publicationPolicy')
+        if set(self.cfg)!=expected:raise Error('Unsupported or incomplete private configuration')
         for key in ('source','repository','stateRoot','python','git'):
             path=Path(self.cfg[key])
             if not path.is_absolute():raise Error('Configured paths must be absolute')
@@ -210,8 +230,19 @@ class Manager:
         if self.local_fixture:return {'fixtureOnly':True}
         repository=self.github_api('')
         slug=self.cfg['remoteUrl'].removeprefix('https://github.com/').removesuffix('.git')
-        if repository.get('full_name','').casefold()!=slug.casefold() or repository.get('private') is not True or repository.get('archived') is not False or repository.get('permissions',{}).get('push') is not True:
-            raise Error('Private writable repository policy is not established; publication blocked')
+        policy=self.publication_policy
+        expected_private=policy is None
+        if (repository.get('full_name','').casefold()!=slug.casefold()
+            or repository.get('private') is not expected_private
+            or repository.get('archived') is not False
+            or repository.get('permissions',{}).get('push') is not True):
+            raise Error('Reviewed writable repository policy is not established; publication blocked')
+        if policy is not None:
+            if (type(repository.get('id')) is not int or repository['id']!=policy['repositoryId']
+                or repository.get('visibility')!='public' or repository.get('disabled') is not False):
+                raise Error('Public source repository identity or state differs from explicit review')
+            return {'privateVerified':False,'repository':slug,'repositoryId':repository['id'],
+                    'visibilityVerified':'public','scope':'source-only','verified':time.time()}
         return {'privateVerified':True,'repository':slug,'verified':time.time()}
     def ci(self,commit):
         if self.local_fixture:return {'status':'completed','conclusion':'success','fixtureOnly':True}

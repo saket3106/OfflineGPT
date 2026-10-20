@@ -46,7 +46,7 @@ class Bridge(QObject):
         folder=ROOT/'logs/library-recovery';folder.mkdir(parents=True,exist_ok=True)
         self.fixture=folder/'frontend-fixture.png';Image.new('RGB',(256,144),(30,30,30)).save(self.fixture)
         self.mask=folder/'frontend-mask.png';mask=Image.new('L',(256,144));ImageDraw.Draw(mask).rectangle((40,40,200,110),fill=255);mask.save(self.mask)
-        self.library=[{'id':'fixture-a','path':str(self.fixture),'userPrompt':'Alpha isolated fixture','created':1,'displayName':'Alpha isolated fixture','operation':'generate_image','model':'Model Alpha','fileSize':30,'finalDimensions':'400 Ã— 200'},{'id':'fixture-b','path':str(self.fixture),'userPrompt':'Beta isolated fixture','created':2,'displayName':'Beta isolated fixture','parentId':'fixture-a','operation':'recolor','model':'Model Beta','fileSize':50,'finalDimensions':'200 Ã— 100'}];self.library_calls=[];self.drafts={}
+        self.library=[{'id':'fixture-a','path':str(self.fixture),'userPrompt':'Alpha isolated fixture','created':1,'displayName':'Alpha isolated fixture','operation':'generate_image','model':'Model Alpha','fileSize':30,'finalDimensions':'400 × 200'},{'id':'fixture-b','path':str(self.fixture),'userPrompt':'Beta isolated fixture','created':2,'displayName':'Beta isolated fixture','parentId':'fixture-a','operation':'recolor','model':'Model Beta','fileSize':50,'finalDimensions':'200 × 100'}];self.library_calls=[];self.drafts={}
         self.hidden=[{'id':'fixture-missing','path':str(folder/'missing-original.png'),'userPrompt':'Missing original fixture','hidden':True,'fileExists':False,'created':0}]
         self.recovery=[{'id':'pending-ui','imageId':'fixture-missing','action':'recycle','path':str(folder/'missing-original.png'),'title':'Missing original fixture','state':'needs_review','outcome':'unknown','fileExists':False,'ownerMatches':True,'hasOriginalIdentity':False}]
         self.recovery.append({'id':'changed-owner-ui','imageId':'fixture-b','action':'recycle','path':str(folder/'previous-path.png'),'title':'Changed reference fixture','state':'needs_review','outcome':'unknown','fileExists':False,'ownerMatches':False,'hasOriginalIdentity':False})
@@ -331,11 +331,11 @@ bridge.emit({'type':'busy','value':False,'status':'Ready'});wait(80)
 
 begin('Image presentation probe','image-probe')
 
-bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'taskType':'image','status':'Loading local image modelâ€¦','prompt':'A quiet lakeside observatory at dawn.','imageProgress':{'state':'LOADING_MODEL','percent':None}}});wait(100)
+bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'taskType':'image','status':'Loading local image model…','prompt':'A quiet lakeside observatory at dawn.','imageProgress':{'state':'LOADING_MODEL','percent':None}}});wait(100)
 
 require('image_dot_field',js("document.querySelector('.luminous-canvas')!==null"))
 
-for dims,ratio in [('512 Ã— 320',1.6),('768 Ã— 1024',.75),('512 Ã— 512',1)]:
+for dims,ratio in [('512 × 320',1.6),('768 × 1024',.75),('512 × 512',1)]:
     bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'targetDimensions':dims}});wait(100)
     layout=js("(()=>{const r=document.querySelector('.generation-surface').getBoundingClientRect();const d=document.querySelector('.luminous-canvas').getBoundingClientRect();return {width:r.width,height:r.height,dotHeight:d.height};})()")
     require('preview_ratio_'+dims,abs(layout['width']/layout['height']-ratio)<.025 and layout['height']>200 and layout['dotHeight']>100)
@@ -345,11 +345,11 @@ require('image_loading_indeterminate',js("document.querySelector('[data-image-st
 
 require('image_prompt_hidden_by_default',js("document.querySelector('.generation-details').open===false"))
 
-bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'status':'Generating image Â· step 3 of 4','imageProgress':{'state':'SAMPLING','percent':75,'completedSteps':3,'totalSteps':4}}});wait(150)
+bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'status':'Generating image · step 3 of 4','imageProgress':{'state':'SAMPLING','percent':75,'completedSteps':3,'totalSteps':4}}});wait(150)
 
 require('image_measured_sampling_progress',js("document.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='75'"))
 
-bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'status':'Saving and verifying the imageâ€¦','imageProgress':{'state':'SAVING','percent':None}}});wait(100)
+bridge.emit({'type':'messageUpdate','id':'image-probe','message':{'status':'Saving and verifying the image…','imageProgress':{'state':'SAVING','percent':None}}});wait(100)
 
 require('image_save_not_premature_completion',js("document.querySelector('[data-image-state=SAVING]')!==null && !document.querySelector('[role=progressbar]') && !document.querySelector('.image-gen-card').textContent.includes('Finish')"))
 
@@ -366,7 +366,7 @@ image_fixture=ROOT/'logs'/'synthetic-image.png'
 Image.new('RGB',(512,320),(48,48,48)).save(image_fixture)
 (ROOT/'logs'/'voice-image-sprint').mkdir(parents=True,exist_ok=True)
 if image_fixture:
-    bridge.emit({'type':'chatChanged','id':'probe','messages':[{'id':'image-reveal','role':'assistant','type':'image','attachment':str(image_fixture),'dimensions':'512 Ã— 320','content':'Generated image.'}]});wait(450)
+    bridge.emit({'type':'chatChanged','id':'probe','messages':[{'id':'image-reveal','role':'assistant','type':'image','attachment':str(image_fixture),'dimensions':'512 × 320','content':'Generated image.'}]});wait(450)
     require('real_image_load_reveals_result',js("document.querySelector('.image-preview').naturalWidth===512 && document.querySelector('.image-preview-wrapper').classList.contains('image-revealed')"))
     require('result_crossfade_hides_dots',eventually("getComputedStyle(document.querySelector('.image-result-reveal')).opacity==='0' && getComputedStyle(document.querySelector('.image-result-reveal')).visibility==='hidden' && getComputedStyle(document.querySelector('.image-preview')).opacity==='1'"))
     require('result_crossfade_has_transition',js("getComputedStyle(document.querySelector('.image-result-reveal')).transitionDuration.includes('0.24s') && getComputedStyle(document.querySelector('.image-preview')).transitionDuration==='0.24s'"))
@@ -438,7 +438,7 @@ js("(()=>{const e=document.querySelector('[aria-label=\"Image type\"]');e.value=
 require('library_generated_filter_excludes_edits',js("document.querySelectorAll('.library-card').length===1&&document.querySelector('.library-card').textContent.includes('Alpha')"))
 js("(()=>{const e=document.querySelector('[aria-label=\"Image type\"]');e.value='all';e.dispatchEvent(new Event('change',{bubbles:true}));})()");wait(80)
 select_library_sort('newest')
-require('header_controls_do_not_overlap_modes',js("(()=>{const a=document.querySelector('.mode-switch').getBoundingClientRect(),b=document.querySelector('.topbar-right').getBoundingClientRect();return a.right+3<=b.left;})()"))
+require('header_controls_do_not_overlap_model',js("(()=>{const a=document.querySelector('.model-selector').getBoundingClientRect(),b=document.querySelector('.topbar-right').getBoundingClientRect();return a.right+3<=b.left;})()"))
 js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Select images').click();const input=document.querySelector('.library-search-input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Alpha');input.dispatchEvent(new Event('input',{bubbles:true}));");wait(150)
 js("[...document.querySelectorAll('button')].find(e=>e.textContent.startsWith('Select visible')).click()");wait(80)
 require('library_select_visible_is_filtered',js("document.querySelector('.library-bulk-toolbar strong').textContent==='1 selected' && document.querySelectorAll('.library-card').length===1"))
@@ -455,14 +455,14 @@ js("(()=>{const input=document.querySelector('.library-search-input');Object.get
 require('library_missing_hidden_item_remains_identifiable',eventually("document.querySelector('.library-card')?.textContent.includes('Missing original') && !!document.querySelector('[aria-label=\"Original file missing\"]')"))
 js("[...document.querySelectorAll('button')].find(e=>e.textContent.startsWith('Recovery (')).click()");wait(100)
 require('recovery_never_offers_keep_for_absent_file',js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Keep reviewed file & show reference').disabled"))
-js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Hide reference Â· leave outcome unknown').click()");wait(180)
+js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Hide reference · leave outcome unknown').click()");wait(180)
 require('recovery_hide_choice_preserves_unknown_outcome',any(action=='libraryReview' and args=={'id':'pending-ui','decision':'hide','confirmed':True} for action,args in bridge.library_calls) and js("document.querySelector('.library-bulk-message').textContent.includes('outcome remains unknown')"))
-js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Close review Â· keep references unchanged').click()");wait(180)
+js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Close review · keep references unchanged').click()");wait(180)
 require('changed_owner_review_closes_without_reference_changes',any(action=='libraryReview' and args=={'id':'changed-owner-ui','decision':'leave','confirmed':True} for action,args in bridge.library_calls) and len(bridge.library)==2 and js("document.querySelector('.library-bulk-message').textContent.includes('references are unchanged')"))
 view.resize(800,760);wait(150)
 require('library_controls_fit_narrow_window',js("(()=>{const r=document.querySelector('.library-controls').getBoundingClientRect();return r.right<=window.innerWidth+1;})()"))
 view.resize(1280,860);wait(100)
-bridge.emit({'type':'recolorRequested','image':{'id':'fixture-b','path':str(bridge.fixture),'maskPath':str(bridge.mask),'recolorOptions':{'color':'#ca151c'},'finalDimensions':'256 Ã— 144'}});wait(200)
+bridge.emit({'type':'recolorRequested','image':{'id':'fixture-b','path':str(bridge.fixture),'maskPath':str(bridge.mask),'recolorOptions':{'color':'#ca151c'},'finalDimensions':'256 × 144'}});wait(200)
 require('mask_proposal_review_available',eventually("[...document.querySelectorAll('button')].some(e=>e.textContent==='Review suggested mask')"))
 js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Review suggested mask').click()");wait(200)
 require('mask_proposal_loaded_into_editable_canvas',eventually("(()=>{const c=document.querySelector('[aria-label=\"Paint recolor mask\"]');return c && c.getContext('2d').getImageData(Math.round(c.width*.5),Math.round(c.height*.5),1,1).data[3]>0;})()"))
@@ -472,10 +472,23 @@ js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Clear mask
 require('mask_clear_removes_preview_and_blocks_empty_save',eventually("(()=>{const c=document.querySelector('[aria-label=\"Paint recolor mask\"]');return c.getContext('2d').getImageData(Math.round(c.width*.5),Math.round(c.height*.5),1,1).data[3]===0 && [...document.querySelectorAll('button')].find(e=>e.textContent==='Save new version').disabled;})()"))
 js("(()=>{const c=document.querySelector('[aria-label=\"Paint recolor mask\"]');c.setPointerCapture=()=>{};const r=c.getBoundingClientRect();c.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:31,clientX:r.left+r.width/2,clientY:r.top+r.height/2}));c.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:31}));})()");wait(80)
 require('cancelled_mask_stroke_is_not_committed',js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Save new version').disabled"))
-bridge.emit({'type':'recolorRequested','image':{'id':'fixture-new-source','path':str(bridge.fixture),'maskPath':str(bridge.mask.parent/'missing-mask.png'),'recolorOptions':{'color':'#185bc4'},'finalDimensions':'256 Ã— 144'}});wait(150)
+bridge.emit({'type':'recolorRequested','image':{'id':'fixture-new-source','path':str(bridge.fixture),'maskPath':str(bridge.mask.parent/'missing-mask.png'),'recolorOptions':{'color':'#185bc4'},'finalDimensions':'256 × 144'}});wait(150)
 require('changing_image_resets_previous_mask_state',js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Save new version').disabled"))
 js("[...document.querySelectorAll('button')].find(e=>e.textContent==='Review suggested mask').click()");wait(150)
 require('missing_reviewed_mask_blocks_save_with_visible_error',eventually("document.querySelector('.recolor-mask [role=alert]')?.textContent.includes('could not load') && [...document.querySelectorAll('button')].find(e=>e.textContent==='Save new version').disabled"))
+
+# A menu selection must finish focus restoration before the inline editor opens.
+# Otherwise the restored trigger blurs and immediately submits the new editor.
+js("document.querySelector('.sidebar-collapsed .brand-emblem')?.click()")
+wait(250)
+js("document.querySelector('.model-chip').focus(); document.querySelector('.history-menu-trigger').click()")
+wait(150)
+js("[...document.querySelectorAll('.action-menu-popup [role=menuitem]')].find(e=>e.textContent.includes('Rename chat')).click()")
+wait(400)
+require('chat_menu_rename_survives_focus_return',js("!!document.querySelector('.history-rename-input') && document.activeElement.classList.contains('history-rename-input')"))
+js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+wait(100)
+require('chat_menu_rename_escape_closes_editor',js("!document.querySelector('.history-rename-input')"))
 
 if '--real' in sys.argv:
 
