@@ -15,6 +15,53 @@ spec=importlib.util.spec_from_file_location('source_sync',Path(__file__).resolve
 sync=importlib.util.module_from_spec(spec);spec.loader.exec_module(sync)
 
 class SourceSyncTests(unittest.TestCase):
+    def test_agent_lock_manifest_matches_git_text_normalization(self):
+        name='requirements-agent-windows-py312.lock'
+        self.assertEqual(sync.manifest_hash(name,b'mcp==2.3.0\r\n'),sync.manifest_hash(name,b'mcp==2.3.0\n'))
+        self.assertNotEqual(sync.manifest_hash('arbitrary.lock',b'value\r\n'),sync.manifest_hash('arbitrary.lock',b'value\n'))
+
+
+    def test_only_exact_hashed_agent_lock_is_allowed(self):
+        valid=b'mcp==2.3.0 --hash=sha256:'+b'a'*64+b'\n'
+        name='requirements-agent-windows-py312.lock'
+        self.assertEqual(sync.scan_blob(name,valid),[])
+        self.assertTrue(any(f['kind']=='unapproved_file_type' for f in sync.scan_blob('arbitrary.lock',valid)))
+        for raw in (b'mcp>=2\n',b'--extra-index-url https://example.test\n',valid+valid):
+            self.assertTrue(any(f['kind']=='invalid_agent_lock' for f in sync.scan_blob(name,raw)))
+
+
+    def test_windows_imports_require_declared_pywin32(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=Path(folder);proposed={'agent.py':b'import win32api,win32job,pywintypes\n'}
+            self.assertEqual(len(sync.dependencies(repo,proposed)['undeclaredImports']),3)
+            proposed['requirements-agent.txt']=b'pywin32==312; sys_platform == "win32"\n'
+            self.assertEqual(sync.dependencies(repo,proposed)['undeclaredImports'],[])
+
+
+    def test_new_application_module_resolves_only_when_in_publication(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=Path(folder)
+            proposed={'app.py':b'import agent_runtime\n'}
+            self.assertIn('agent_runtime',sync.dependencies(repo,proposed)['undeclaredImports'])
+            proposed['agent_runtime.py']=b'import json\n'
+            self.assertNotIn('agent_runtime',sync.dependencies(repo,proposed)['undeclaredImports'])
+
+
+    def test_deleted_application_module_cannot_satisfy_dependency(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=Path(folder);(repo/'agent_runtime.py').write_text('VALUE=1')
+            result=sync.dependencies(repo,{'app.py':b'import agent_runtime\n','agent_runtime.py':None})
+            self.assertIn('agent_runtime',result['undeclaredImports'])
+
+
+    def test_optional_agent_dependency_requires_real_requirement(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=Path(folder);proposed={'agent_mcp.py':b'from mcp.client import Client\n'}
+            self.assertIn('mcp',sync.dependencies(repo,proposed)['undeclaredImports'])
+            proposed['requirements-agent.txt']=b'mcp==2.3.0\n'
+            self.assertNotIn('mcp',sync.dependencies(repo,proposed)['undeclaredImports'])
+
+
     def setUp(self):
         self.git=os.environ.get('OFFLINEGPT_TEST_GIT') or shutil.which('git')
         if not self.git:self.skipTest('Git is required for synchronization regressions')

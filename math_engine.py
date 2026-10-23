@@ -33,10 +33,12 @@ _SAFE_FUNCS = {
 }
 
 
-def safe_eval_expression(expr: str) -> int | float:
+def safe_eval_expression(expr: str, *, strict_syntax: bool = False) -> int | float:
     """Evaluate an arithmetic expression using AST without using Python's unsafe eval()."""
-    cleaned = expr.strip().replace(",", "")
-    cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("^", "**")
+    # Existing prose calculator accepts thousands separators. Structured tools
+    # use strict arithmetic syntax so function-argument commas stay intact.
+    cleaned = expr.strip() if strict_syntax else expr.strip().replace(",", "")
+    cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("−", "-").replace("^", "**")
     # Replace single 'x' between numbers with '*'
     cleaned = re.sub(r"(?<=\d)\s*[xX]\s*(?=\d)", " * ", cleaned)
 
@@ -481,14 +483,22 @@ def extract_and_evaluate_math(text: str) -> dict[str, Any] | None:
 def _extract_arithmetic_expr(text: str) -> str:
     cleaned = text.strip().replace(",", "")
     cleaned = re.sub(r"\b(?:what(?:'s| is)|calculate|compute|solve|equals?|answer)\b", "", cleaned, flags=re.I)
-    cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("^", "**")
+    cleaned = cleaned.replace("×", "*").replace("÷", "/").replace("−", "-").replace("^", "**")
     cleaned = re.sub(r"(?<=\d)\s*[xX]\s*(?=\d)", " * ", cleaned)
 
-    match = re.search(r"(-?\d+(?:\.\d+)?(?:\s*(?:\*\*|[+\-*/%])\s*-?\d+(?:\.\d+)?)+)", cleaned)
+    # Extract the whole contiguous expression, including grouped operands.
+    # Never salvage an inner multiplication from an incomplete parenthesized
+    # expression and report that fragment as the complete calculation.
+    match = re.search(r"(?<![\w.])([+\-(\d][\d\s.+*/%()\-]*(?:\d|\)))", cleaned)
     if not match:
         return ""
     expr = match.group(1).strip()
-    return expr if len(expr) <= 100 else ""
+    if len(expr)>100 or not re.search(r'[+*/%\-]',expr):return ''
+    try:
+        tree=ast.parse(expr,mode='eval')
+        if not any(isinstance(n,ast.BinOp) for n in ast.walk(tree)):return ''
+    except (SyntaxError,ValueError):return ''
+    return expr
 
 
 def number_in_text(text: str, expected_number: int | float | str) -> bool:

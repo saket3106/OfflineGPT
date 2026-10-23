@@ -153,8 +153,10 @@ def extract_constraints(text: str) -> dict[str, Any]:
 
     # Bullet point count: "exactly 3 bullet points", "3 bullets", "list exactly 3 benefits"
     bullets = (
-        re.search(r"\b(?:exactly\s+)?(\d{1,2})\s+(?:bullet points?|bullets|items?)\b", low)
-        or re.search(r"\b(?:list|give|name)\s+(?:exactly\s+)?(\d{1,2})\s+(?:benefits?|reasons?|examples?|tips?|points?|steps?)\b", low)
+        re.search(r"\b(?:exactly\s+)?(\d{1,2})\s+(?:bullet points?|bullets)\b", low)
+        # A quantity of objects in the problem is not an output constraint.
+        # Items require an explicit list-producing instruction.
+        or re.search(r"\b(?:list|give|name|provide|return)\s+(?:me\s+)?(?:exactly\s+)?(\d{1,2})\s+(?:benefits?|reasons?|examples?|tips?|points?|steps?|items?)\b", low)
     )
     if bullets:
         constraints["bullet_count"] = int(bullets.group(1))
@@ -286,6 +288,7 @@ def route_request(text: str, has_document: bool = False, rag_context: str = "") 
     # Check intents
     wants_datetime = not classification_only and bool(re.search(r"\b(?:what time is it|what is the time|current time|today's date|what date is it|what day is it)\b", low))
     wants_system_info = not classification_only and bool(re.search(r"\b(?:system info|specs?|ram status|how much ram|hardware specs?|pc specs?)\b", low))
+    wants_agent = not classification_only and bool(re.search(r"\b(?:agent|agentic|autonomous|multi[- ]step|tools?|capabilities|solve\s+with\s+tools?)\b", low))
     wants_code = bool(re.search(r"\b(?:python|javascript|typescript|c\+\+|java|rust|go|code|function|class|method|script|debug|traceback|exception|bug|syntaxerror|runtimeerror|compile)\b", low))
     wants_python_execution = bool(
         re.search(r"\b(?:run|execute|test|evaluate)\s+(?:(?:this|the|a|an|the\s+following|following)\s+)*python(?:\s+(?:code|script|program))?\b|\bpython\s+(?:execution|run|eval)\b", low)
@@ -468,7 +471,7 @@ def route_request(text: str, has_document: bool = False, rag_context: str = "") 
         category = "logic"
     elif factual_state == FactualGroundingState.UNSUPPORTED:
         category = "factual"
-    elif wants_datetime or wants_system_info:
+    elif wants_datetime or wants_system_info or wants_agent:
         category = "tool_required"
     elif has_exact_constraint:
         category = "exact_format"
@@ -522,7 +525,7 @@ def route_request(text: str, has_document: bool = False, rag_context: str = "") 
         "route_target": ("MULTI_TASK" if is_multi_task else "CLASSIFICATION_ONLY" if classification_only
                          else document_search_mode(original) if wants_document else
                          ("PYTHON" if wants_python_execution else "CALCULATOR" if math_eval else "LOGIC" if logic_eval
-                          else "TOOL" if wants_datetime or wants_system_info else "CONSTRAINT" if has_exact_constraint else "DIRECT")),
+                          else "TOOL" if wants_datetime or wants_system_info or wants_agent else "CONSTRAINT" if has_exact_constraint else "DIRECT")),
         "document_required": wants_document,
         "document_available": bool(has_document),
         "missing_document": bool(wants_document and not has_document),
@@ -553,6 +556,7 @@ def route_request(text: str, has_document: bool = False, rag_context: str = "") 
         "max_retries": 2,
         "wants_datetime": wants_datetime,
         "wants_system_info": wants_system_info,
+        "wants_agent": wants_agent,
         "wants_python_execution": wants_python_execution,
         "raw_detected_sections": raw_detected_sections,
         "parsed_sections": parsed_sections,
@@ -592,28 +596,40 @@ def get_relevant_tools(analysis: dict[str, Any] | None = None, prompt_text: str 
                 tt = (str(task.get("text") or "")).lower()
                 if "time" in tt or "date" in tt:
                     needed.add("datetime")
-                if "system" in tt or "ram" in tt or "hardware" in tt or "specs" in tt:
+                if "system" in tt or "ram" in tt or "hardware" in tt or "specs" in tt or "os" in tt:
                     needed.add("system_info")
-                if "calc" in tt or "math" in tt:
+                if "calc" in tt or "math" in tt or re.search(r"\d+\s*[\+\-\*/\^%]\s*\d+", tt):
                     needed.add("calculator")
                 if "python" in tt or "code" in tt:
                     needed.add("python_runner")
-                if "file" in tt or "search" in tt:
+                if "file" in tt or "search" in tt or "dir" in tt:
                     needed.add("file_search")
-        return sorted(needed)
+        res = sorted(needed)
+        print(f"[ROUTER] Multi-task tools: {res}")
+        return res
 
     # Single task
     route_target = analysis.get("route_target", "DIRECT")
     category = analysis.get("category", "normal")
     text = prompt_text or analysis.get("prompt", "")
+    p_low = str(text or "").lower()
 
     # Classification-only never needs tool schemas injected
     if route_target == "CLASSIFICATION_ONLY" or is_classification_only(text):
         return []
 
+    # Check for general agentic or multi-tool directive
+    if analysis.get("wants_agent") or bool(re.search(r"\b(?:agent|agentic|autonomous|step[- ]by[- ]step|tools?|capabilities)\b", p_low)):
+        all_tools = ["calculator", "datetime", "file_search", "python_runner", "system_info"]
+        print(f"[ROUTER] Agentic mode detected -> Target: {route_target} | Tools: {all_tools}")
+        return all_tools
+
     tools = []
     if re.search(r'\b(?:calculate|compute|work out)\b.{0,100}\b(?:percent(?:age)?|improvement|difference|ratio|total|average|change)\b',text,re.I) and not re.search(r'\b(?:not|never|without|don.t)\b.{0,30}\bcalculator\b',text,re.I):tools.append('calculator')
     if re.search(r'\b(?:use|using|with|call)\s+(?:the\s+)?(?:local\s+)?calculator(?:\s+tool)?\b',text,re.I) and not re.search(r'\b(?:not|never|without|don.t)\b.{0,30}\bcalculator\b',text,re.I):tools.append('calculator')
+    if re.search(r"\d+\s*[\+\-\*/\^%]\s*\d+", p_low) and not re.search(r'\b(?:not|never|without|don.t)\b.{0,30}\bcalculator\b',text,re.I):
+        tools.append('calculator')
+
     has_python = (
         route_target == "PYTHON"
         or analysis.get("wants_python_execution")
@@ -621,18 +637,19 @@ def get_relevant_tools(analysis: dict[str, Any] | None = None, prompt_text: str 
     )
     if has_python:
         tools.append("python_runner")
+        if not re.search(r'\b(?:calculate|calculator|compute|work out)\b',p_low):
+            tools=[name for name in tools if name!='calculator']
 
     if (route_target == "CALCULATOR" or category in {"math", "probability"}) and not has_python:
         tools.append("calculator")
 
-    if analysis.get("wants_datetime"):
+    if analysis.get("wants_datetime") or "time" in p_low or "date" in p_low or "today" in p_low or "clock" in p_low:
         tools.append("datetime")
-    if analysis.get("wants_system_info"):
+    if analysis.get("wants_system_info") or "system" in p_low or "ram" in p_low or "hardware" in p_low or "specs" in p_low or "os" in p_low:
         tools.append("system_info")
 
     if route_target == "TOOL" or category == "tool_required":
-        p_low = str(text).lower()
-        if "file" in p_low or "search" in p_low:
+        if "file" in p_low or "search" in p_low or "dir" in p_low or "folder" in p_low:
             tools.append("file_search")
         if "calc" in p_low or "math" in p_low:
             tools.append("calculator")
@@ -640,7 +657,9 @@ def get_relevant_tools(analysis: dict[str, Any] | None = None, prompt_text: str 
             tools.append("python_runner")
 
     if tools:
-        return sorted(set(tools))
+        res = sorted(set(tools))
+        print(f"[ROUTER] Target: {route_target} | Category: {category} | Tools: {res}")
+        return res
 
     # Simple conversational, formatting, writing, summarization, factual, logic, constraint without tools
     if route_target in {"DIRECT", "CONSTRAINT", "LOGIC", "DOCUMENT_EXACT", "DOCUMENT_RAG"}:

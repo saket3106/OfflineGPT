@@ -70,7 +70,7 @@ class SpeechRepairTests(unittest.TestCase):
             cfg={'voice_server_path':str(server),'voice_model_path':str(model),'voice_language':'en'}
             process=Mock(pid=123);process.poll.return_value=None
             response=Mock();response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False);response.read.return_value=b'{"text":"A complete final word."}'
-            with patch('integrated_runtime.available_cuda_memory',return_value=3*1024**3),patch('app.physical_memory_status',return_value={'available':4*1024**3}),patch('app.subprocess.Popen',return_value=process) as launch,patch('app.urllib.request.urlopen',return_value=response):
+            with patch('integrated_runtime.available_cuda_memory',return_value=3*1024**3),patch('app.physical_memory_status',return_value={'available':4*1024**3}),patch('app.subprocess.Popen',return_value=process) as launch,patch('app.make_whisper_loopback_opener',return_value=Mock(open=Mock(return_value=response))):
                 workers=[]
                 for _ in range(5):
                     worker=app.WhisperTranscriptionWorker(b'\0\0'*16000,16000,cfg);worker.run();workers.append(worker)
@@ -83,7 +83,7 @@ class SpeechRepairTests(unittest.TestCase):
             root=Path(directory);server=root/'whisper-server.exe';model=root/'model.bin';server.touch();model.touch()
             process=Mock(pid=456);process.poll.return_value=None
             response=Mock();response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False);response.read.return_value=b'{"text":"Local CPU fallback."}'
-            with patch('integrated_runtime.available_cuda_memory',return_value=0),patch('app.physical_memory_status',return_value={'available':4*1024**3}),patch('app.subprocess.Popen',return_value=process) as launch,patch('app.urllib.request.urlopen',return_value=response):
+            with patch('integrated_runtime.available_cuda_memory',return_value=0),patch('app.physical_memory_status',return_value={'available':4*1024**3}),patch('app.subprocess.Popen',return_value=process) as launch,patch('app.make_whisper_loopback_opener',return_value=Mock(open=Mock(return_value=response))):
                 worker=app.WhisperTranscriptionWorker(b'\0'*32000,16000,{'voice_server_path':str(server),'voice_model_path':str(model)});worker.run()
             self.assertTrue(worker.succeeded);self.assertIn('--no-gpu',launch.call_args.args[0]);self.assertEqual(worker.metrics['executionProvider'],'cpu')
 
@@ -97,7 +97,7 @@ class SpeechRepairTests(unittest.TestCase):
             worker=app.WhisperTranscriptionWorker(b'\0'*32000,16000,{'voice_server_path':str(server),'voice_model_path':str(model)})
             manager=Mock();worker.engine=manager;manager.resource_lock.acquire.return_value=True
             values=iter([{'available':4*1024**3},{'available':100*1024**2},{'available':4*1024**3}])
-            with patch('integrated_runtime.available_cuda_memory',return_value=3*1024**3),patch('app.physical_memory_status',side_effect=lambda:next(values)),patch('app.subprocess.Popen',return_value=process),patch('app.urllib.request.urlopen',return_value=response):worker.run()
+            with patch('integrated_runtime.available_cuda_memory',return_value=3*1024**3),patch('app.physical_memory_status',side_effect=lambda:next(values)),patch('app.subprocess.Popen',return_value=process),patch('app.make_whisper_loopback_opener',return_value=Mock(open=Mock(return_value=response))):worker.run()
             self.assertTrue(worker.succeeded);manager._unload_chat.assert_called_once()
 
     def test_worklet_flush_retains_final_partial_packet_once(self):
@@ -110,8 +110,8 @@ class SpeechRepairTests(unittest.TestCase):
         script="""let Processor; const messages=[];global.sampleRate=16000;global.AudioWorkletProcessor=class{constructor(){this.port={postMessage:m=>messages.push(m)}}};global.registerProcessor=(n,p)=>Processor=p;
 """+worklet+"""
 const p=new Processor();p.process([[new Float32Array(128).fill(.25)]]);p.port.onmessage({data:{type:'flush'}});p.port.onmessage({data:{type:'flush'}});const packets=messages.filter(m=>m.pcm);if(packets.length!==1||new Int16Array(packets[0].pcm).length!==128||new Int16Array(packets[0].pcm)[127]!==8192)throw Error('Partial final packet lost or duplicated');console.log('PASS');"""
-        import shutil
-        node=shutil.which('node')
+        import shutil,os
+        node=os.environ.get('OFFLINEGPT_TEST_NODE') or shutil.which('node')
         if not node:self.skipTest('Node.js is required for AudioWorklet validation')
         result=subprocess.run([str(node),'-e',script],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)

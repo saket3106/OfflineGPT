@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 
 SCRIPTS={'auto_sync.py','sync_source.py','audit_repository.py','sync_runner.py'}
 class RunnerError(RuntimeError):pass
@@ -23,13 +24,13 @@ def ordinary(path):
 def validate(manifest_path):
     manifest_path=ordinary(Path(manifest_path));manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
     fields={'version','commit','privateRoot','runtimeRoot','repository','source','configPath','configSha256','pythonPath','pythonSha256','scripts'}
-    if set(manifest)!=fields or manifest['version']!=1 or not re.fullmatch('[0-9a-f]{40}',manifest['commit']):raise RunnerError('Invalid accepted runtime manifest')
+    if set(manifest)!=fields or (type(manifest['version']) is not int or manifest['version']!=1) or not re.fullmatch('[0-9a-f]{40}',manifest['commit']):raise RunnerError('Invalid accepted runtime manifest')
     paths={key:ordinary(Path(manifest[key])) for key in ('privateRoot','runtimeRoot','repository','source','configPath','pythonPath')}
     private=paths['privateRoot'];runtime=paths['runtimeRoot']
     if private.is_relative_to(paths['repository']) or private.is_relative_to(paths['source']):raise RunnerError('Private runtime overlaps project trees')
     if not runtime.is_relative_to(private/'runtime') or runtime.name!=manifest['commit']:raise RunnerError('Runtime must be in its accepted commit directory')
     if not manifest_path.is_relative_to(private) or not paths['configPath'].is_relative_to(private):raise RunnerError('Manifest/config must remain private')
-    if paths['repository']==paths['source'] or paths['repository'].is_relative_to(paths['source']) or paths['source'].is_relative_to(paths['repository']):raise RunnerError('Project roots overlap')
+    overlap=paths['repository']==paths['source'] or paths['repository'].is_relative_to(paths['source']) or paths['source'].is_relative_to(paths['repository'])
     if set(manifest['scripts'])!=SCRIPTS:raise RunnerError('Complete fixed controller script set is required')
     for name,expected in manifest['scripts'].items():
         if not isinstance(expected,str) or not re.fullmatch('[0-9a-f]{64}',expected):raise RunnerError('Invalid script identity')
@@ -38,6 +39,19 @@ def validate(manifest_path):
     if sha(paths['configPath'])!=manifest['configSha256'] or sha(paths['pythonPath'])!=manifest['pythonSha256']:raise RunnerError('Approved configuration/interpreter identity changed')
     config=json.loads(paths['configPath'].read_text(encoding='utf-8'))
     if ordinary(Path(config['repository']))!=paths['repository'] or ordinary(Path(config['source']))!=paths['source'] or ordinary(Path(config['stateRoot']))!=private or ordinary(Path(config['python']))!=paths['pythonPath']:raise RunnerError('Configured project/runtime identity mismatch')
+    if overlap or config.get('version')==3:
+        if type(config.get('version')) is not int or config['version']!=3 or paths['repository']!=paths['source']:raise RunnerError('Project roots overlap without an exact canonical contract')
+        # Compile ONLY the already hash-pinned source bytes. Importlib's loader
+        # can read adjacent timestamp caches even when bytecode writes are off.
+        code_path=ordinary(runtime/'scripts/sync_source.py');data=code_path.read_bytes()
+        if hashlib.sha256(data).hexdigest()!=manifest['scripts']['sync_source.py']:raise RunnerError('Accepted canonical validator changed')
+        module=types.ModuleType('frozen_canonical_boundary');module.__file__=str(code_path)
+        exec(compile(data,str(code_path),'exec',dont_inherit=True),module.__dict__)
+        try:
+            module.validate_canonical_contract(paths['repository'],paths['source'],config.get('layoutContract'),config['git'])
+            control=json.loads(ordinary(private/'control.json').read_text(encoding='utf-8'))
+            if type(control.get('layoutEpoch')) is not int or control['layoutEpoch']!=config['layoutContract']['epoch'] or control.get('layoutContractSha256')!=module.digest(module.canonical(config['layoutContract'])):raise RunnerError('Frozen canonical adoption receipt mismatch')
+        except (RuntimeError,OSError,ValueError,KeyError,TypeError) as error:raise RunnerError('Frozen canonical boundary rejected: '+str(error)) from error
     return manifest,paths
 def atomic(path,value):
     descriptor,temporary=tempfile.mkstemp(prefix='.runner-',dir=path.parent)

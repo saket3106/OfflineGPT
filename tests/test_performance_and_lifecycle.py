@@ -250,12 +250,13 @@ class StreamingPresentationRegressions(unittest.TestCase):
         from pathlib import Path
         from tempfile import TemporaryDirectory
         from unittest.mock import Mock
-        from integrated_runtime import EngineManager
+        from integrated_runtime import EngineManager, _LocalLlamaServer
         with TemporaryDirectory() as directory:
             model=Path(directory)/'local-model.gguf';model.write_bytes(b'fixture')
             manager=EngineManager();manager.cfg['chat_backend']='bundled';manager.cfg['gpt_oss_gguf']=str(model)
             manager.model_lifecycle_mode='fast'
             server=Mock();server.model_path=str(model.resolve());server.projector_path='';server._is_healthy.return_value=True
+            server.loaded_gpu_layers='auto';server.model_file_observation=_LocalLlamaServer.file_observation(model)
             manager.runtime=server
             manager.ensure_chat();manager.ensure_chat()
             server.start.assert_not_called()

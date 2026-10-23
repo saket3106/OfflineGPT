@@ -8,6 +8,7 @@ import sys
 import unittest
 from unittest.mock import patch
 import test_source_sync as fixtures
+import controller_fixture_cache as fixture_cache
 
 spec=importlib.util.spec_from_file_location('manager_under_test',Path(__file__).resolve().parents[1]/'scripts/auto_sync.py')
 auto=importlib.util.module_from_spec(spec);spec.loader.exec_module(auto)
@@ -16,6 +17,10 @@ REVIEWS={'complete':True,'content':True,'dependencies':True,'sourceLicenses':Tru
 
 class AutoSyncTests(unittest.TestCase):
     def setUp(self):
+        if fixture_cache.restore(self,auto,fixtures):return
+        self.uncached_setUp()
+        fixture_cache.remember(self,auto,fixtures)
+    def uncached_setUp(self):
         fixture=fixtures.SourceSyncTests('runTest');fixture.setUp();self.addCleanup(fixture.doCleanups)
         self.f=fixture;self.repo=fixture.repo;self.source=fixture.source
         self.private=fixture.root/'private';self.private.mkdir();self.config=self.private/'config.json'

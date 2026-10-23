@@ -88,7 +88,7 @@ class _Reader:
 def inspect_gguf(path,*,cancel_event=None):
     """Inspect metadata only. The result can never enable an inference backend."""
     path,before=ordinary_file(path)
-    selected={};keys=set();tensor_names=set();types=set();offsets=[]
+    selected={};keys=set();tensor_names=set();types=set();offsets=[];stored_elements=0
     with path.open('rb') as stream:
         if identity(os.fstat(stream.fileno()))!=identity(before):raise InspectionError('Selected model changed before opening')
         r=_Reader(stream,before.st_size,cancel_event)
@@ -104,11 +104,15 @@ def inspect_gguf(path,*,cancel_event=None):
             keys.add(key);value=r.value(r.number('I'))
             if key=='general.name' and not isinstance(value,str):raise InspectionError('Model display name must be a string')
             if key in {'general.name','general.architecture','general.file_type','general.quantization_version','general.alignment',
-                       'general.license','tokenizer.ggml.model','tokenizer.ggml.tokens','split.count'} or key.endswith('.context_length'):
+                       'general.license','general.parameter_count','general.size_label','tokenizer.ggml.model','tokenizer.ggml.tokens','split.count','split.no'} or key.endswith(('.context_length','.block_count','.embedding_length','.attention.head_count','.attention.head_count_kv','.attention.key_length','.attention.value_length','.full_attention_interval')):
                 selected[key]=value
             elif key=='tokenizer.chat_template':
                 if not isinstance(value,str):raise InspectionError('Chat template must be a string')
-                selected[key]={'sha256':hashlib.sha256(value.encode()).hexdigest(),'characters':len(value),'trusted':False}
+                # Observe only the embedded template's explicit control branch;
+                # never execute it here or grant native compatibility from it.
+                thinking_control=bool(re.search(r'{%-?\s*if\s+enable_thinking\s+is\s+defined\s+and\s+enable_thinking\s+is\s+false\s*-?%}',value))
+                selected[key]={'sha256':hashlib.sha256(value.encode()).hexdigest(),'characters':len(value),'trusted':False,
+                               'enableThinkingBranchObserved':thinking_control}
         alignment=selected.get('general.alignment',32)
         if type(alignment) is not int or alignment<1 or alignment>4096 or alignment&(alignment-1):
             raise InspectionError('Invalid or unsupported GGUF tensor alignment')
@@ -117,9 +121,14 @@ def inspect_gguf(path,*,cancel_event=None):
             if not name or name in tensor_names:raise InspectionError('Empty or duplicate tensor name')
             tensor_names.add(name);dimensions=r.number('I')
             if dimensions<1 or dimensions>4:raise InspectionError('Unsupported GGUF tensor dimensionality')
+            elements=1
             for _ in range(dimensions):
                 size=r.number('Q')
                 if size==0 or size>2**63-1:raise InspectionError('Invalid tensor dimension')
+                elements*=size
+                if elements>2**63-1:raise InspectionError('Tensor element count exceeds inspection arithmetic bound')
+            stored_elements+=elements
+            if stored_elements>2**63-1:raise InspectionError('Stored tensor elements exceed inspection arithmetic bound')
             types.add(r.number('I'));offset=r.number('Q')
             if offset%alignment:raise InspectionError('Unaligned tensor offset')
             offsets.append(offset)
@@ -139,6 +148,7 @@ def inspect_gguf(path,*,cancel_event=None):
     if selected.get('split.count',1)!=1:warnings.append('Sharded model requires separate complete-asset review')
     return {'status':'STATIC_METADATA_INSPECTED','version':version,'metadata':selected,'tensorCount':tensors,
             'tensorTypeIds':sorted(types),'fileSizeBytes':before.st_size,'bytesRead':r.consumed,
+            'storedTensorElements':stored_elements,
             'headerMetadataSha256':r.digest.hexdigest(),'fullModelSha256':None,
             'tensorDataIntegrity':'NOT_VERIFIED','nativeCompatible':False,'warnings':warnings,
             'elapsedSeconds':time.monotonic()-r.started,'fileObservation':identity(before)}

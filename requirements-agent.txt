@@ -1,0 +1,7 @@
+# Optional agent extension. Do not mutate an accepted/frozen build environment.
+# See docs/AGENT_MODE.md and the reviewed dependency lock before packaging.
+mcp==2.3.0
+# Direct runtime/test and Windows process-isolation imports; versions match the reviewed lock.
+mcp-types==2.3.0
+anyio==4.15.1
+pywin32==312; sys_platform == "win32"

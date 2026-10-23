@@ -3,6 +3,8 @@
 
 from PyInstaller.utils.hooks import collect_all
 from runtime_contracts import validate_windows_payload_paths
+from agent_packaging import collect_agent_inputs
+agent_data,agent_binaries,agent_imports=collect_agent_inputs('requirements-agent-windows-py312.lock')
 voice_data=[];voice_binaries=[];voice_imports=[]
 for package in ['kokoro_onnx','espeakng_loader','phonemizer','onnxruntime']:
     data,binary,hidden=collect_all(package)
@@ -11,9 +13,9 @@ for package in ['kokoro_onnx','espeakng_loader','phonemizer','onnxruntime']:
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=voice_binaries,
-    datas=[('ui', 'ui'), ('assistant_system_prompt.md', '.')]+voice_data,
-    hiddenimports=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebChannel', 'intelligence', 'router', 'validators', 'math_engine', 'code_engine', 'rag_engine', 'tool_registry', 'memory_manager', 'logic_engine', 'grounding','voice_runtime','PySide6.QtMultimedia','image_pipeline','workspace_services','integrated_runtime','model_inspection']+voice_imports,
+    binaries=voice_binaries+agent_binaries,
+    datas=[('ui', 'ui'), ('assistant_system_prompt.md', '.')]+voice_data+agent_data,
+    hiddenimports=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebChannel', 'intelligence', 'router', 'validators', 'math_engine', 'code_engine', 'rag_engine', 'tool_registry', 'memory_manager', 'logic_engine', 'grounding','thread_diagnostics','voice_runtime','PySide6.QtMultimedia','image_pipeline','workspace_services','integrated_runtime','model_inspection','model_runtime','model_library','document_tools','agent_runtime','agent_mcp','agent_workspace','agent_permissions','agent_desktop','agent_artifacts','agent_memory','agent_resources']+voice_imports+agent_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

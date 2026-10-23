@@ -167,7 +167,7 @@ class Milestones:
             return value.rstrip()+'\n\n'+START+'\n'+block+END+'\n'
         return before,{'README.md':append(readme).encode(),'CHANGELOG.md':append(changelog).encode()}
     def prepare(self,evidence):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             commit,ci=self.accepted();identity=self.manager.git_identity();tree=s.tree_hashes(self.repo,self.manager.cfg['git'])
             result=self.evaluate(evidence);before,after=self.render(result['eligible'])
             plan={'version':1,'id':uuid.uuid4().hex,'status':'PREPARED','head':commit,'ci':ci,'gitIdentity':identity,'tree':tree,'classification':result,
@@ -183,7 +183,7 @@ class Milestones:
             require(all(value is None or isinstance(value,str) for value in plan[side].values()),'Invalid document bytes')
         return folder,plan
     def apply(self,identifier,digest,reviewed):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             folder,plan=self.load_plan(identifier);require(reviewed is True and digest==plan['digest'],'Exact public-content approval required')
             commit,_=self.accepted();require(commit==plan['head'] and self.manager.git_identity()==plan['gitIdentity'] and s.tree_hashes(self.repo,self.manager.cfg['git'])==plan['tree'],'Repository/index changed after proposal')
             current=self.evaluate(plan['evidence']);require(current==plan['classification'],'Evidence changed after proposal')
@@ -197,7 +197,7 @@ class Milestones:
             journal.update(status='APPLIED',applied=time.time(),staged=False,committed=False,pushed=False);s.atomic_write(folder/'journal.json',s.canonical(journal))
             return {'status':'APPLIED','paths':[k for k in after if before[k]!=after[k]],'staged':False,'committed':False,'pushed':False}
     def recover(self,identifier):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             folder,plan=self.load_plan(identifier);journal=read(folder/'journal.json')
             require(journal.get('planDigest')==plan['digest'] and journal.get('before')==plan['before'] and journal.get('after')==plan['after'],'Recovery journal mismatch')
             require(journal.get('status') in {'APPLYING','APPLIED'},'Unknown recovery lifecycle')

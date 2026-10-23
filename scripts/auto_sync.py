@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
+import tempfile
 import urllib.parse
 import urllib.request
 import uuid
@@ -33,9 +34,10 @@ CI_WAIT_SECONDS=30*60
 TEST_SECONDS={'unit':600,'publication':180}
 
 @contextmanager
-def exclusive(path):
+def exclusive(path, *, create_parent=True):
     """OS lock is released on crash; the durable journal is never erased."""
-    path.parent.mkdir(parents=True,exist_ok=True)
+    if create_parent:path.parent.mkdir(parents=True,exist_ok=True)
+    elif not path.parent.is_dir():raise Error('Publication repository no longer exists; do not recreate a stale root')
     stream=path.open('a+b')
     try:
         # Reading a byte already locked by another Windows process can itself
@@ -60,10 +62,13 @@ def publication_policy(cfg):
     Existing version-1 configurations retain the private-only policy.
     """
     version=cfg.get('version')
-    if type(version) is not int or version not in {1,2}:raise Error('Unsupported configuration version')
+    if type(version) is not int or version not in {1,2,3}:raise Error('Unsupported configuration version')
     if version==1:
         if 'publicationPolicy' in cfg:raise Error('Version 1 remains private-only')
         return None
+    if version==3:
+        sync.canonical_contract_schema(cfg.get('layoutContract'))
+        if 'publicationPolicy' not in cfg:return None
     policy=cfg.get('publicationPolicy')
     if (not isinstance(policy,dict) or set(policy)!={'repositoryId','visibility','scope'}
         or type(policy['repositoryId']) is not int or policy['repositoryId']<=0
@@ -75,6 +80,8 @@ class Manager:
     def __init__(self,config, *, local_fixture=False):
         self.config_path=Path(config).resolve();self.cfg=sync.load(self.config_path)
         expected={'version','source','repository','stateRoot','python','git','branch','remoteUrl','debounceSeconds','testProfile'}
+        self.canonical_mode=self.cfg.get('version')==3
+        if self.canonical_mode:expected.add('layoutContract')
         self.publication_policy=publication_policy(self.cfg)
         if self.publication_policy is not None:expected.add('publicationPolicy')
         if set(self.cfg)!=expected:raise Error('Unsupported or incomplete private configuration')
@@ -85,7 +92,9 @@ class Manager:
                 if part.exists() and sync.linked(part):raise Error('Configured path has a reparse/link ancestor')
         self.source=Path(self.cfg['source']).resolve();self.repo=Path(self.cfg['repository']).resolve()
         self.state=sync.validate_external(Path(self.cfg['stateRoot']),self.repo,self.source)
-        if self.source.is_relative_to(self.repo) or self.repo.is_relative_to(self.source):raise Error('Source and publication trees overlap')
+        if self.canonical_mode:
+            sync.validate_canonical_contract(self.repo,self.source,self.cfg['layoutContract'],self.cfg['git'])
+        elif self.source.is_relative_to(self.repo) or self.repo.is_relative_to(self.source):raise Error('Source and publication trees overlap')
         if not self.config_path.is_relative_to(self.state):raise Error('Configuration must live in private state root')
         if not re.fullmatch(r'codex/[a-z0-9][a-z0-9/-]{1,70}',self.cfg['branch']):raise Error('Only an explicit codex development branch is allowed')
         if self.cfg['testProfile'] not in {'publication','unit'}:raise Error('Unapproved test command profile')
@@ -99,7 +108,14 @@ class Manager:
         if self.lock.exists() and sync.linked(self.lock):raise Error('Repository mutex is a link')
         self.local_fixture=local_fixture;self.state.mkdir(parents=True,exist_ok=True)
         (self.state/'batches').mkdir(exist_ok=True)
-        if not (self.state/'control.json').exists():self.write(self.state/'control.json',{'mode':'running'})
+        control_path=self.state/'control.json'
+        if self.canonical_mode:
+            if not control_path.is_file():raise Error('Canonical layout requires explicit versioned adoption')
+            control=sync.load(control_path);contract=self.cfg['layoutContract']
+            if type(control.get('layoutEpoch')) is not int or control.get('layoutEpoch')!=contract['epoch'] or control.get('layoutContractSha256')!=sync.digest(sync.canonical(contract)):
+                raise Error('Canonical layout adoption/epoch mismatch')
+        elif control_path.is_file() and sync.load(control_path).get('layoutEpoch',0):raise Error('Canonical layout downgrade rejected')
+        if not control_path.exists():self.write(control_path,{'mode':'running'})
     def write(self,path,value):sync.atomic_write(path,sync.canonical(value))
     def git(self,*args,check=True,input=None):
         env={**os.environ,'GIT_OPTIONAL_LOCKS':'0','GIT_TERMINAL_PROMPT':'0','GCM_INTERACTIVE':'Never'}
@@ -116,22 +132,64 @@ class Manager:
         # Rebind incidental fetch/object metadata only after all meaningful
         # source/repository/index/HEAD/config identities have been rechecked.
         return sync.digest(sync.canonical({k:v for k,v in plan.items() if k!='gitMetadataDigest'}))
+    def layout_lock(self):
+        if not self.canonical_mode:raise Error('Canonical layout lock requires an adopted version 3 contract')
+        return exclusive(self.state/'canonical-layout.lock')
+    @contextmanager
+    def publication_lock(self):
+        if self.canonical_mode:
+            # External to the movable repository. All supported canonical
+            # publication/build/upgrade operations acquire this gate first.
+            with self.layout_lock():
+                with exclusive(self.lock,create_parent=False):yield
+        else:
+            with exclusive(self.lock):yield
     def guard(self,clean=True):
         if sync.load(self.state/'control.json')['mode']!='running':raise Error('Manager is paused/stopped')
         sync.git_fingerprint(self.repo,self.cfg['git'])
         if self.git('branch','--show-current').decode().strip()!=self.cfg['branch']:raise Error('Publication branch differs from configured development branch')
         if self.git('remote','get-url','origin').decode().strip()!=self.cfg['remoteUrl']:raise Error('Remote identity changed')
         if self.git('config','--get-all','remote.origin.pushurl',check=False).strip():raise Error('Separate push URL requires explicit reconciliation')
-        if clean and self.git('status','--porcelain=v1').strip():raise Error('Preserve/reconcile existing repository or index changes first')
+        if self.canonical_mode:
+            sync.validate_canonical_contract(self.repo,self.source,self.cfg['layoutContract'],self.cfg['git'])
+            control=sync.load(self.state/'control.json')
+            if type(control.get('layoutEpoch')) is not int or control.get('layoutEpoch')!=self.cfg['layoutContract']['epoch'] or control.get('layoutContractSha256')!=sync.digest(sync.canonical(self.cfg['layoutContract'])):raise Error('Canonical layout adoption changed')
+            if clean:self.canonical_changes()
+        elif clean and self.git('status','--porcelain=v1').strip():raise Error('Preserve/reconcile existing repository or index changes first')
         if self.git('config','--get','core.hooksPath',check=False).strip():raise Error('Custom Git hooks require independent review')
         if any(p.is_file() and not p.name.endswith('.sample') for p in (self.repo/'.git/hooks').glob('*')):raise Error('Active Git hooks require independent review')
         for name in ('MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD','rebase-merge','rebase-apply'):
             if (self.repo/'.git'/name).exists():raise Error('Concurrent Git history operation')
     def source_identity(self):
         policy=sync.load(self.repo/sync.POLICY);sync.validate_policy(policy,self.repo)
-        unknown=sorted(sync.source_candidates(self.source)-set(policy['managed'])-set(policy['protected'])-set(policy.get('excluded_candidates',[])))
+        known=set(policy['managed'])|set(policy['protected'])|set(policy.get('excluded_candidates',[]))
+        if self.canonical_mode:known.update(filter(None,self.git('ls-tree','-r','--name-only','-z','HEAD').decode().split('\0')))
+        unknown=sorted(sync.source_candidates(self.source)-known)
         if unknown:raise Error('Unclassified source files: '+', '.join(unknown))
         return {p:sync.file_hash(self.source,p) for p in sorted(policy['managed']+policy['protected'])}
+    def canonical_changes(self):
+        # Preserve any existing staged selection, including partial staging.
+        if self.git('diff','--cached','--name-only','-z').strip():raise Error('Existing staged work requires explicit reconciliation')
+        policy=sync.load(self.repo/sync.POLICY);sync.validate_policy(policy,self.repo)
+        changed=set(filter(None,self.git('diff','--name-only','-z','HEAD').decode().split('\0')))
+        changed.update(filter(None,self.git('ls-files','--others','--exclude-standard','-z').decode().split('\0')))
+        if changed-set(policy['managed']):raise Error('Canonical change includes unapproved/repository-owned paths')
+        for rel in changed:sync.safe_path(self.repo,rel)
+        return changed
+    def discovery_plan(self):
+        if not self.canonical_mode:return sync.build_plan(self.repo,self.source,self.cfg['git'])
+        before=self.source_identity()
+        # Disjoint, bounded private snapshot: no same-root copy/apply shortcut.
+        with tempfile.TemporaryDirectory(prefix='canonical-discovery-',dir=self.state) as folder:
+            root=Path(folder)
+            for rel,h in before.items():
+                if h is not None:
+                    data=sync.file_bytes(self.source,rel)
+                    if sync.digest(data)!=h:raise Error('Canonical source changed during discovery')
+                    sync.atomic_write(sync.safe_path(root,rel),data)
+            plan=sync.build_plan(self.repo,root,self.cfg['git'])
+            if before!=self.source_identity():raise Error('Canonical source changed during discovery')
+            return plan
     def batch_path(self,identifier):
         if not re.fullmatch('[0-9a-f]{32}',identifier):raise Error('Invalid batch ID')
         path=self.state/'batches'/identifier
@@ -153,7 +211,7 @@ class Manager:
         return value
     def prepare(self,title):
         if not isinstance(title,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 .,():/-]{5,100}',title):raise Error('Use a bounded sanitized batch title')
-        with exclusive(self.lock):
+        with self.publication_lock():
             self.guard();before=self.source_identity();repo_before=sync.tree_hashes(self.repo,self.cfg['git']);git_before=self.git_identity()
             time.sleep(self.cfg['debounceSeconds'])
             if before!=self.source_identity():raise Error('Source is still being written')
@@ -202,7 +260,7 @@ class Manager:
             self.write(path/'plan.json',refreshed)
             return self.record(path,'AWAITING_REVIEW',tests=receipt,planDigest=sync.digest(sync.canonical(refreshed)),semanticPlanDigest=self.semantic_plan_digest(refreshed))
     def accept(self,identifier,identity,reviews):
-        with exclusive(self.lock):
+        with self.publication_lock():
             self.guard();path=self.batch_path(identifier);batch=sync.load(path/'batch.json')
             if batch['status']!='AWAITING_REVIEW' or identity!=batch['snapshotDigest'] or set(reviews)!={'complete','content','dependencies','sourceLicenses'} or not all(v is True for v in reviews.values()):raise Error('Exact completed-batch review is required')
             if batch['sourceFiles']!=self.source_identity() or batch['repositoryFiles']!=sync.tree_hashes(self.repo,self.cfg['git']):raise Error('Review is stale')
@@ -326,7 +384,7 @@ class Manager:
         app_changed=any(not p.startswith(('tests/','docs/','evals/')) for p in batch.get('stagedPaths',[]) if p not in {sync.STATE,sync.MANIFEST})
         return self.record(path,'COMPLETE',ci=ci,completed=time.time(),binaryPublication='BLOCKED_NATIVE_PROVENANCE_AND_LICENSES',candidateBuild='QUEUED_FOR_SEPARATE_VERIFIED_BUILD_CONTROLLER' if app_changed else 'SKIPPED_NO_APPLICATION_CODE_CHANGE')
     def once(self):
-        with exclusive(self.lock):
+        with self.publication_lock():
             if sync.load(self.state/'control.json')['mode']!='running':return {'status':'PAUSED'}
             active=[]
             for path in sorted((self.state/'batches').iterdir()):
@@ -334,7 +392,7 @@ class Manager:
                     batch=sync.load(path/'batch.json')
                     if batch['status'] in {'ACCEPTED','APPLYING','STAGING','COMMITTING','COMMITTED','OFFLINE_RETRY','CI_PENDING'}:active.append((batch.get('created',0),path,batch))
             if not active:
-                self.guard();plan=sync.build_plan(self.repo,self.source,self.cfg['git'])
+                self.guard();plan=self.discovery_plan()
                 discovery={k:plan[k] for k in ('actions','conflicts','findings','missingRequired','unapprovedCandidates','protectedSourceChanges')}
                 discovery.update(observed=time.time(),publicationRequiresCompletedBatch=True)
                 self.write(self.state/'discovery.json',discovery)
@@ -365,7 +423,7 @@ def main():
     elif args.command=='run-once':result=manager.once()
     elif args.command=='status':result=manager.status()
     else:
-        manager.write(manager.state/'control.json',{'mode':'running' if args.command=='start' else args.command+'ped' if args.command=='stop' else 'paused'});result=manager.status()
+        control=sync.load(manager.state/'control.json');control['mode']='running' if args.command=='start' else args.command+'ped' if args.command=='stop' else 'paused';manager.write(manager.state/'control.json',control);result=manager.status()
     print(json.dumps(result,indent=2))
 if __name__=='__main__':
     try:main()

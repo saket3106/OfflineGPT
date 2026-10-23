@@ -71,6 +71,14 @@ class InspectionTests(unittest.TestCase):
     def test_missing_architecture_tokenizer_and_template_are_explicit(self):
         result=self.inspect(fixture([]));self.assertEqual(len(result['warnings']),3)
 
+    def test_thinking_control_is_observed_only_for_the_explicit_template_branch(self):
+        for template,expected in [('{%- if enable_thinking is defined and enable_thinking is false %}x{% endif %}',True),
+                                  ('{{ "enable_thinking" }}',False),('{{ messages }}',False)]:
+            result=self.inspect(fixture([('tokenizer.chat_template',8,template)]))
+            observed=result['metadata']['tokenizer.chat_template']
+            self.assertEqual(observed['enableThinkingBranchObserved'],expected)
+            self.assertFalse(observed['trusted']);self.assertFalse(result['nativeCompatible'])
+
     def test_display_name_is_reported_but_never_grants_compatibility(self):
         result=self.inspect(fixture([('general.name',8,'Untrusted Display Name')]))
         self.assertEqual(result['metadata']['general.name'],'Untrusted Display Name')

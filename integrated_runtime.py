@@ -22,6 +22,7 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 from runtime_contracts import ExistingTextAdapter
+from model_runtime import ModelInfo, ModelBehavior, EngineTextRuntime, TemplateContentStream, model_display_name
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 _runtime_logger = logging.getLogger("offline_gpt.runtime")
@@ -29,6 +30,15 @@ _runtime_logger = logging.getLogger("offline_gpt.runtime")
 
 class EmptyVisibleResponseError(RuntimeError):
     """Completion ended but contained no safe user-facing assistant text."""
+
+
+def structured_agent_format(schema,behavior,tools):
+    if schema is None:return None
+    if behavior.harmony or tools or not isinstance(schema,dict):
+        raise ValueError('Structured Agent output requires a non-Harmony, tool-free bundled request.')
+    encoded=json.dumps(schema,allow_nan=False)
+    if len(encoded.encode('utf-8'))>16384:raise ValueError('Agent response schema exceeds its bounded budget.')
+    return {'type':'json_object','schema':json.loads(encoded)}
 
 
 class ToolCallCompletion:
@@ -110,8 +120,9 @@ def load_config():
     except (TypeError, ValueError):
         result["chat_validation_retries"] = 2
     result["chat_system_prompt_path"] = str(result.get("chat_system_prompt_path", "assistant_system_prompt.md")).strip() or "assistant_system_prompt.md"
-    result["chat_gpu_layers"] = -1
-    result["chat_gpu"] = "auto"
+    cpu_requested=str(saved.get('chat_gpu','')).lower()=='cpu' or type(saved.get('chat_gpu_layers')) is int and saved['chat_gpu_layers']==0
+    result["chat_gpu_layers"] = 0 if cpu_requested else -1
+    result["chat_gpu"] = "cpu" if cpu_requested else "auto"
     result["vision_model"] = str(result.get("vision_model", "")).strip()
     try:
         result["vision_context"] = max(2048, min(8192, int(result.get("vision_context", 4096))))
@@ -144,7 +155,16 @@ def load_config():
 
 
 def save_config(value):
-    CONFIG_PATH.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    # A crash must not expose partially written model/settings JSON to readers.
+    import tempfile
+    descriptor,name=tempfile.mkstemp(prefix='.offline-gpt-config-',suffix='.tmp',dir=CONFIG_PATH.parent)
+    try:
+        with os.fdopen(descriptor,'w',encoding='utf-8') as stream:
+            json.dump(value,stream,indent=2,allow_nan=False);stream.flush();os.fsync(stream.fileno())
+        os.replace(name,CONFIG_PATH)
+    finally:
+        try:os.unlink(name)
+        except FileNotFoundError:pass
 
 
 def resolve_path(value):
@@ -186,8 +206,8 @@ def physical_memory_status():
     }
 
 
-def _local_memory_profile(memory, requested_context):
-    """Choose a context and batch that leave room for the local native runtime."""
+def _local_memory_profile(memory, requested_context, hardware_profile='balanced', custom_options=None):
+    """Choose context, batch, threads and commit that leave room for the local runtime."""
     gib = 1024 ** 3
     mib = 1024 ** 2
     available_ram = memory.get("available")
@@ -201,39 +221,57 @@ def _local_memory_profile(memory, requested_context):
             "free some memory, then retry."
         )
 
-    requested_context = max(2048, min(32768, int(requested_context)))
-    if available_ram < int(1.5 * gib):
-        context, batch, threads = min(requested_context, 2048), 32, 2
-    elif available_ram < int(3.5 * gib):
-        context, batch, threads = min(requested_context, 3072), 64, 3
-    elif available_ram < int(6 * gib):
-        context, batch, threads = requested_context, 128, 4
-    else:
-        context, batch, threads = requested_context, 256, min(8, max(2, (os.cpu_count() or 4) - 2))
+    hw_profile = str(hardware_profile or 'balanced').strip().lower()
+    if hw_profile not in {'eco', 'balanced', 'performance', 'custom'}:
+        hw_profile = 'balanced'
 
-    # Measured 16 GiB installed runs exhausted physical headroom after reload.
-    # Pagefile capacity is not spare physical RAM. Bound KV/work buffers and
-    # CPU parallelism on this constrained profile; never change the model.
-    total_ram=memory.get('total')
-    if total_ram is not None and total_ram<=18*gib and available_ram<9*gib:
-        context=min(context,2048);batch=min(batch,64);threads=min(threads,4)
+    requested_context = max(512, min(32768, int(requested_context)))
+    total_ram = memory.get('total')
+    cpu_cores = os.cpu_count() or 4
 
-    # Keep a minimum commit reserve for the native runtime, graph/work buffers,
-    # and KV cache. This scales with context and stays independent of mmap GGUF size.
+    if hw_profile == 'eco':
+        context = min(requested_context, 2048)
+        batch = 32
+        threads = max(1, min(2, cpu_cores - 1))
+    elif hw_profile == 'performance':
+        context = min(requested_context, 8192)
+        batch = 128
+        threads = max(1, min(8, max(2, cpu_cores - 1)))
+    elif hw_profile == 'custom' and isinstance(custom_options, dict):
+        context = min(32768, max(512, int(custom_options.get('context', requested_context))))
+        batch = min(512, max(16, int(custom_options.get('batch', 64))))
+        threads = min(16, max(1, int(custom_options.get('threads', 4))))
+    else:  # balanced
+        if available_ram < int(1.5 * gib):
+            context, batch, threads = min(requested_context, 2048), 32, 2
+        elif available_ram < int(3.5 * gib):
+            context, batch, threads = min(requested_context, 3072), 64, 3
+        elif available_ram < int(6 * gib):
+            context, batch, threads = min(requested_context, 4096), 64, 4
+        else:
+            context, batch, threads = min(requested_context, 4096), 64, min(4, max(2, cpu_cores - 2))
+
+    # Constrained profile bounds for machines with total_ram <= 18 GiB
+    if total_ram is not None and total_ram <= 18 * gib and available_ram < 9 * gib:
+        if hw_profile == 'eco':
+            context = min(context, 2048); batch = min(batch, 32); threads = min(threads, 2)
+        elif hw_profile == 'balanced':
+            context = min(context, 2048); batch = min(batch, 64); threads = min(threads, 4)
+
     runtime_commit = int((1.25 + 0.5 * context / 4096) * gib)
-    if available_commit is None or available_commit < runtime_commit:
-        current = "unavailable" if available_commit is None else f"{available_commit / gib:.1f} GB"
+    if available_commit is not None and available_commit < runtime_commit:
+        current = f"{available_commit / gib:.1f} GB"
         raise RuntimeError(
             f"The selected local GPT-OSS profile needs about {runtime_commit / gib:.1f} GB of Windows memory-commit headroom "
             f"for the selected context; {current} is available. Increase the Windows paging-file limit or free memory, then retry."
         )
-    # The native loader warns that automatic CPU tensor overrides plus mmap
-    # can retain a mapped copy and a separate host buffer. Avoid that loading
-    # mode on constrained hybrid machines; real candidate acceptance measures
-    # the resulting allocation rather than assuming this resolves all pressure.
-    load_mode = "none" if total_ram is not None and total_ram <= 18*gib else "mmap"
-    return {"context": context, "batch": batch, "threads": threads, "commit": runtime_commit,
-            "load_mode": load_mode}
+
+    load_mode = "none" if total_ram is not None and total_ram <= 18 * gib else "mmap"
+    return {
+        "context": context, "batch": batch, "threads": threads,
+        "commit": runtime_commit, "load_mode": load_mode,
+        "hardware_profile": hw_profile,
+    }
 
 
 def available_cuda_memory():
@@ -369,8 +407,10 @@ class _HarmonyFinalStream:
         return ""
 
 
-def visible_assistant_text(value):
+def visible_assistant_text(value, architecture=None):
     """Return final/safe assistant text, or an empty string for reasoning-only output."""
+    if isinstance(architecture,str) and architecture and architecture!='gpt-oss':
+        parser=TemplateContentStream();return parser.feed(str(value or ''))+parser.finish()
     return parse_visible_assistant_output(value)["text"]
 
 
@@ -419,10 +459,15 @@ def _merge_tool_call_deltas(target, deltas):
         if item.get("id"):
             call["id"] = str(item["id"])
         function = item.get("function") or {}
-        if function.get("name"):
-            call["name"] += str(function["name"])
-        if function.get("arguments"):
-            call["arguments"] += str(function["arguments"])
+        name = function.get("name") or item.get("name")
+        if name:
+            call["name"] += str(name)
+        raw_args = function.get("arguments") if "arguments" in function else item.get("arguments")
+        if raw_args is not None:
+            if isinstance(raw_args, (dict, list)):
+                call["arguments"] = json.dumps(raw_args)
+            else:
+                call["arguments"] += str(raw_args)
 
 
 def _normalized_tool_calls(calls):
@@ -432,9 +477,19 @@ def _normalized_tool_calls(calls):
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        try:
-            arguments = json.loads(item.get("arguments") or "{}")
-        except (TypeError, ValueError):
+        raw_args = item.get("arguments")
+        if isinstance(raw_args, dict):
+            arguments = raw_args
+        elif isinstance(raw_args, str):
+            try:
+                arguments = json.loads(raw_args)
+            except (TypeError, ValueError):
+                try:
+                    import ast
+                    arguments = ast.literal_eval(raw_args)
+                except Exception:
+                    arguments = {}
+        else:
             arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
@@ -537,6 +592,39 @@ class _LocalLlamaServer:
         self.log_handle = None
         self._request_lock = threading.Lock()
         self.last_generation_diagnostics = {}
+        self.behavior=ModelBehavior()
+        self._behavior_observation=None
+        # Private model transport must never inherit a system or environment
+        # proxy. It is restricted to the app-owned loopback endpoint.
+        self._local_opener=urllib.request.OpenerDirector()
+        for handler in (urllib.request.HTTPHandler(),urllib.request.HTTPDefaultErrorHandler(),urllib.request.HTTPErrorProcessor()):
+            self._local_opener.add_handler(handler)
+        if os.environ.get('OFFLINE_GPT_THREAD_DIAGNOSTICS')=='1':
+            try:urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            except OSError:_runtime_logger.exception('Default urllib opener initialization failed; private HTTP-only transport is isolated from it')
+        self.last_health_error=''
+
+    def inspect_behavior(self,path):
+        """Bind format to observed metadata, not to a model's filename.
+
+        Legacy configurations remain usable when static inspection cannot run;
+        that fallback is explicitly not new-model compatibility evidence.
+        """
+        import model_inspection
+        try:
+            _,info=model_inspection.ordinary_file(path);observation=model_inspection.identity(info)
+            key=(str(path),observation)
+            if self._behavior_observation==key:return
+            descriptor=ModelInfo.from_inspection(model_inspection.inspect_gguf(path))
+            self.behavior=ModelBehavior.from_model(descriptor)
+            self.model_descriptor=descriptor
+            self._behavior_observation=key
+            self.behavior_inspection_error=''
+        except (OSError,ValueError) as exc:
+            self.behavior=ModelBehavior()
+            self.model_descriptor=None
+            self._behavior_observation=None
+            self.behavior_inspection_error=str(exc)[:300]
 
     def _log_generation_diagnostics(self, details):
         """Write local diagnostics without persisting hidden reasoning text."""
@@ -601,7 +689,7 @@ class _LocalLlamaServer:
             headers=headers, method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with self._local_opener.open(request, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as exc:
             detail = self._read_error(exc)
@@ -613,7 +701,7 @@ class _LocalLlamaServer:
         if not self.ready:
             return False
         try:
-            with urllib.request.urlopen(self._url("/health"), timeout=1.5) as response:
+            with self._local_opener.open(self._url("/health"), timeout=1.5) as response:
                 return response.status == 200
         except Exception:
             return False
@@ -627,7 +715,12 @@ class _LocalLlamaServer:
     def start(self, model_path, context, gpu_layers, progress, cancel_event=None, memory_profile=None, projector_path=None):
         target = str(Path(model_path).resolve())
         projector = str(Path(projector_path).resolve()) if projector_path else ""
-        if self.model_path == target and self.projector_path == projector and self.context == int(context) and self._is_healthy():
+        layers=self.gpu_layer_argument(gpu_layers)
+        observation=self.file_observation(target)
+        cached=getattr(self,'model_descriptor',None)
+        if isinstance(cached,ModelInfo) and getattr(self,'model_file_observation',None)==observation and cached.context_limit:
+            context=min(int(context),cached.context_limit)
+        if self.model_path == target and self.projector_path == projector and self.context == int(context) and getattr(self,'loaded_gpu_layers',None)==layers and getattr(self,'model_file_observation',None)==observation and self._is_healthy():
             return
         self.stop()
         server = self._server_binary()
@@ -636,13 +729,20 @@ class _LocalLlamaServer:
             raise RuntimeError(f"Local GGUF model was not found: {target}. Choose the model file in Settings.")
         if projector and not Path(projector).is_file():
             raise RuntimeError(f"Qwen3-VL projector was not found: {projector}. Choose the matching mmproj file in Settings.")
+        self.inspect_behavior(target)
+        descriptor=getattr(self,'model_descriptor',None)
+        if isinstance(descriptor,ModelInfo) and descriptor.context_limit:
+            context=min(int(context),descriptor.context_limit)
+            if context<512:raise RuntimeError('The selected model declares a context below the supported 512-token application minimum.')
         self.port = self._port()
         self.context = int(context)
         self.model_path = target
+        self.loaded_gpu_layers=layers
+        self.model_file_observation=observation
         self.projector_path = projector
         self.log_filename = "llama-vision.log" if projector else "llama-server.log"
         self.api_key = secrets.token_urlsafe(32)
-        batch = 256 if projector else max(64, min(512, int((memory_profile or {}).get("batch", 256))))
+        batch = 256 if projector else max(32, min(512, int((memory_profile or {}).get("batch", 256))))
         ubatch = 128 if projector else max(32, min(256, int((memory_profile or {}).get("ubatch", batch // 2))))
         self.log_dir.mkdir(exist_ok=True)
         log_path = self.log_dir / self.log_filename
@@ -652,7 +752,7 @@ class _LocalLlamaServer:
             env["PATH"] = str(APP_DIR) + os.pathsep + env.get("PATH", "")
             command = [
                 str(server), "-m", target, "-c", str(self.context),
-                "-b", str(batch), "-ub", str(ubatch), "-np", "1", "-ngl", "auto",
+                "-b", str(batch), "-ub", str(ubatch), "-np", "1", "-ngl", self.gpu_layer_argument(gpu_layers),
                 "--fit", "on", "--fit-target", "1024" if projector else "512", "--load-mode",
                 "mmap" if projector else (memory_profile or {}).get("load_mode", "mmap"), "--jinja",
                 "--flash-attn", "on",
@@ -665,7 +765,7 @@ class _LocalLlamaServer:
             command.extend(['--cache-ram',str(cache_ram)])
             if projector:
                 command.extend(["--mmproj", projector])
-            else:
+            elif self.behavior.harmony:
                 command.extend(["--reasoning-effort", "low"])
             command.extend(["--no-ui", "--api-key", self.api_key,
                             "--host", "127.0.0.1", "--port", str(self.port)])
@@ -691,22 +791,28 @@ class _LocalLlamaServer:
                     critical_ram_ticks += 1
                     if critical_ram_ticks >= 2:
                         self.stop()
-                        raise RuntimeError("GPT-OSS loading was stopped because less than 512 MiB of physical RAM remained. The model and chats are unchanged; release other memory or use a smaller context before retrying.")
+                        target_name = Path(target).name if target else "Local model"
+                        raise RuntimeError(f"{target_name} loading was stopped because less than 512 MiB of physical RAM remained. The model and chats are unchanged; release other memory or use a smaller context before retrying.")
                 else:
                     critical_ram_ticks = 0
                 try:
-                    with urllib.request.urlopen(self._url("/health"), timeout=1.0) as response:
+                    with self._local_opener.open(self._url("/health"), timeout=1.0) as response:
                         if response.status == 200:
+                            if self.file_observation(target)!=self.model_file_observation:
+                                raise RuntimeError('The selected model changed while loading. Stop editing it and retry; no prior allocation may be reused.')
                             return
                 except urllib.error.HTTPError as exc:
                     if exc.code not in (503, 502):
                         detail = self._read_error(exc)
                         raise RuntimeError(f"The local GPT-OSS engine returned HTTP {exc.code}. {detail}".strip()) from exc
-                except (OSError, TimeoutError):
-                    pass
+                except (OSError, TimeoutError) as exc:
+                    detail=f'{type(exc).__name__}: {exc}'[:300]
+                    if detail!=self.last_health_error:
+                        self.last_health_error=detail
+                        _runtime_logger.warning('Private model health transport: %s',detail)
                 if time.monotonic() >= next_update:
                     elapsed = int(time.monotonic() - started)
-                    progress(f"Loading GPT-OSS locally · {elapsed // 60}m {elapsed % 60}s elapsed…")
+                    progress(f"Loading selected model locally · {elapsed // 60}m {elapsed % 60}s elapsed…"+(f" Health transport: {self.last_health_error}" if self.last_health_error else ""))
                     next_update = time.monotonic() + 8
                 time.sleep(0.25)
             detail = self._log_tail()
@@ -714,6 +820,19 @@ class _LocalLlamaServer:
         except Exception:
             self.stop()
             raise
+
+    @staticmethod
+    def file_observation(path):
+        try:
+            info=Path(path).stat()
+            return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns)
+        except OSError:return None
+
+    @staticmethod
+    def gpu_layer_argument(value):
+        if value=='auto' or type(value) is int and value==-1:return 'auto'
+        if type(value) is int and 0<=value<=1024:return str(value)
+        raise ValueError('GPU layers must be auto or a bounded nonnegative integer.')
 
     @staticmethod
     def _copy_messages(messages):
@@ -768,7 +887,9 @@ class _LocalLlamaServer:
         return header + "[Relevant excerpts selected from a longer local document; the source file was not changed.]\n" + chosen
 
     def _prompt_tokens(self, messages):
-        template_request={"messages":messages,"chat_template_kwargs":{"reasoning_effort":getattr(self,'_active_template_effort','low')}}
+        template_request={"messages":messages}
+        kwargs=self.behavior.template_kwargs(getattr(self,'_active_template_effort','low'))
+        if kwargs:template_request['chat_template_kwargs']=kwargs
         if getattr(self,'_active_template_tools',None):template_request['tools']=self._active_template_tools
         templated = self._json_request("/apply-template", template_request, timeout=30)
         prompt = templated.get("prompt") if isinstance(templated, dict) else None
@@ -862,6 +983,9 @@ class _LocalLlamaServer:
                 transformations.append({'kind':'system_shortened','original_chars':len(content),'fitted_chars':len(working[0]['content'])})
                 shortened = True
                 continue
+            if count <= self.context - min_output_reserve - 16:
+                actual_output = max(min_output_reserve, min(target_output, self.context - count - 16))
+                return finish(count, actual_output, shortened)
             raise RuntimeError(
                 f"This message needs {count:,} prompt tokens; the local model context is {self.context:,} "
                 f"with {min_output_reserve:,} tokens reserved for the answer. Shorten this one message or attached document and retry."
@@ -892,11 +1016,12 @@ class _LocalLlamaServer:
         except (OSError,ValueError,TypeError):
             _runtime_logger.warning('Optional fitted-prompt capture unavailable; inference continues.')
 
-    def complete(self, messages, context, max_tokens, temperature, cancel_event, on_token, progress, memory_profile=None, connection_callback=None, top_p=None, allowed_tools=None, reasoning_effort=None):
+    def complete(self, messages, context, max_tokens, temperature, cancel_event, on_token, progress, memory_profile=None, connection_callback=None, top_p=None, allowed_tools=None, reasoning_effort=None, response_schema=None):
         if not self._is_healthy():
             raise RuntimeError("Offline GPT's local GPT-OSS engine is not running. Send the message again to restart it.")
         with self._request_lock:
             tools = _local_tool_schemas(allowed_tools)
+            response_format=structured_agent_format(response_schema,self.behavior,tools)
             self._active_template_tools=tools;self._active_template_effort=reasoning_effort if reasoning_effort in {'low','medium','high'} else 'low'
             fitted, prompt_tokens, output_tokens, shortened = self._fit_messages(messages, max_tokens, progress, cancel_event)
             self._capture_fitted_prompt(fitted)
@@ -905,15 +1030,15 @@ class _LocalLlamaServer:
             output_tokens = max(1, min(self.MAX_OUTPUT, int(output_tokens)))
             tools = _local_tool_schemas(allowed_tools)
             payload = {
-                "model": "gpt-oss-20b-local", "messages": fitted, "stream": True,
+                "model": self.behavior.model_alias, "messages": fitted, "stream": True,
                 "max_tokens": output_tokens, "temperature": float(temperature),
                 "top_p": float(0.92 if top_p is None else top_p),
-                "chat_template_kwargs": {"reasoning_effort": reasoning_effort if reasoning_effort in {"low","medium","high"} else "low"},
-                "reasoning_budget_tokens": min(output_tokens//3,{"low":0,"medium":256,"high":512}.get(reasoning_effort,128)),
                 "stream_options": {"include_usage": True},
                 "cache_prompt": True,
                 "timings_per_token": True,
             }
+            payload.update(self.behavior.generation_options(reasoning_effort,output_tokens))
+            if response_format is not None:payload['response_format']=response_format
             if tools:
                 payload["tools"] = tools
                 payload["tool_choice"] = "auto"
@@ -1021,7 +1146,7 @@ class _LocalLlamaServer:
 
             reader = threading.Thread(target=read_stream, name="OfflineGPT-local-stream", daemon=True)
             reader.start()
-            visible = _VisibleChatStream()
+            visible = _VisibleChatStream() if self.behavior.harmony else TemplateContentStream()
             parts = []
             generation_diagnostics = {}
             stream_error = ""
@@ -1071,7 +1196,10 @@ class _LocalLlamaServer:
                 reader.join(timeout=1)
             raw_output = str(generation_diagnostics.get("raw_output", ""))
             generation_diagnostics.pop("raw_output", None)
-            parsed = parse_visible_assistant_output(raw_output)
+            if self.behavior.harmony:parsed = parse_visible_assistant_output(raw_output)
+            else:
+                parser=TemplateContentStream();plain=parser.feed(raw_output)+parser.finish()
+                parsed={'text':plain,'reasoning_present':parser.hidden,'explicit_final':False}
             answer = "".join(parts).strip() or parsed["text"].strip()
             generation_diagnostics.update({
                 "raw_output_length": len(raw_output),
@@ -1088,8 +1216,18 @@ class _LocalLlamaServer:
             if stream_error:
                 generation_diagnostics["stream_error"] = stream_error[:400]
             tool_calls = generation_diagnostics.pop("tool_calls", []) or []
+            if not tool_calls and allowed_tools:
+                from tool_registry import ToolRegistry
+                extracted = ToolRegistry().parse_tool_calls(raw_output)
+                if extracted:
+                    allowed_set = set(allowed_tools) if allowed_tools is not None else None
+                    matching = [c for c in extracted if allowed_set is None or c.get("name") in allowed_set]
+                    if matching:
+                        tool_calls = matching
+                        generation_diagnostics["tool_call_present"] = True
             self._log_generation_diagnostics(generation_diagnostics)
             if tool_calls:
+                print(f"[TOOL_CALL] Intercepted {len(tool_calls)} tool call(s) from local model output: {[c.get('name') for c in tool_calls]}")
                 return ToolCallCompletion(tool_calls)
             if not answer:
                 raise EmptyVisibleResponseError("GPT-OSS finished without a visible final answer. A safe recovery attempt is required.")
@@ -1506,7 +1644,17 @@ class _LMStudioRuntime:
             if connection_callback:
                 connection_callback(None)
         tool_calls = _normalized_tool_calls(tool_calls_by_index)
+        if not tool_calls and allowed_tools:
+            from tool_registry import ToolRegistry
+            streamed_text = "".join(parts)
+            extracted = ToolRegistry().parse_tool_calls(streamed_text)
+            if extracted:
+                allowed_set = set(allowed_tools) if allowed_tools is not None else None
+                matching = [c for c in extracted if allowed_set is None or c.get("name") in allowed_set]
+                if matching:
+                    tool_calls = matching
         if tool_calls:
+            print(f"[TOOL_CALL] Intercepted {len(tool_calls)} tool call(s) from local model output: {[c.get('name') for c in tool_calls]}")
             self.last_activity = time.monotonic()
             return ToolCallCompletion(tool_calls)
         streamed = "".join(parts).strip()
@@ -1547,13 +1695,13 @@ class EngineManager:
         self.cfg = load_config()
         self.loaded_model = ""
         self.runtime = None
-        self.lm_runtime = _LMStudioRuntime(self.cfg, APP_DIR / "logs")
+        self.lm_runtime = _LMStudioRuntime(self.cfg, CONFIG_PATH.parent / "logs")
         self.active_chat_backend = ""
         self.image_process = None
         self.shutting_down = False
         self.lock = threading.RLock()
-        self.log_dir = APP_DIR / "logs"
-        self.log_dir.mkdir(exist_ok=True)
+        self.log_dir = CONFIG_PATH.parent / "logs"
+        self.log_dir.mkdir(parents=True,exist_ok=True)
         self.chat_load_state = "not-loaded"
         self.chat_last_error = ""
         self.chat_test_state = "not-tested"
@@ -1580,12 +1728,15 @@ class EngineManager:
         self._idle_timer = None
         self._current_generation_id = 0
         self._model_inspection_cache = {}
+        self.text_runtime=EngineTextRuntime(self)
+        self.last_completion_identity={}
 
     def reload(self):
         previous = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
         previous_backend = self.cfg.get("chat_backend", "bundled")
         previous_context = self.cfg.get("chat_context")
         previous_external_model = self.cfg.get("chat_model", "")
+        previous_gpu=(self.cfg.get('chat_gpu','auto'),self.cfg.get('chat_gpu_layers',-1))
         self.cfg = load_config()
         self.model_lifecycle_mode = self.cfg.get("model_lifecycle_mode", "balanced")
         self.model_keepalive_seconds = self.cfg.get("model_keepalive_seconds", 90)
@@ -1595,7 +1746,7 @@ class EngineManager:
         current = resolve_path(self.cfg.get("gpt_oss_gguf", "")) if self.cfg.get("gpt_oss_gguf") else None
         current_backend = self.cfg.get("chat_backend", "bundled")
         external_changed = (current_backend == "lmstudio" and previous_external_model != self.cfg.get("chat_model", ""))
-        selection_changed = previous != current or previous_backend != current_backend or previous_context != self.cfg.get("chat_context") or external_changed
+        selection_changed = previous != current or previous_backend != current_backend or previous_context != self.cfg.get("chat_context") or previous_gpu!=(self.cfg.get('chat_gpu','auto'),self.cfg.get('chat_gpu_layers',-1)) or external_changed
         if selection_changed:
             self._model_inspection_cache.clear()
             self.chat_test_state = "not-tested"
@@ -1627,6 +1778,59 @@ class EngineManager:
     def _hidden_flags():
         return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+    def resolve_model_path(self, model_target=None):
+        from pathlib import Path
+        if not model_target or str(model_target).strip() in ("", "default", "gpt-oss-20b-local", "openai/gpt-oss-20b"):
+            # The default key is an explicit GPT-OSS selection. A previously
+            # loaded Qwen path must never redefine what that selection means.
+            return self.image_path("gpt_oss_gguf")
+        target_str = str(model_target).strip()
+        if target_str == str(self.cfg.get("chat_model", "")).strip():
+            return self.image_path("gpt_oss_gguf")
+        try:
+            p = resolve_path(target_str)
+            if p and p.is_file():
+                return p
+        except Exception:
+            pass
+        try:
+            configured_gguf = self.image_path("gpt_oss_gguf", optional=True)
+            if configured_gguf and configured_gguf.name.lower() == target_str.lower():
+                return configured_gguf
+        except Exception:
+            pass
+        try:
+            import sqlite3
+            from pathlib import Path
+            data_dir = self.log_dir.parent if hasattr(self, 'log_dir') else Path('.')
+            db_file = data_dir / 'offline_gpt.sqlite3'
+            if db_file.is_file():
+                with sqlite3.connect(db_file) as con:
+                    if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_model_references'").fetchone():
+                        row = con.execute("SELECT path FROM local_model_references WHERE id=? OR path=? COLLATE NOCASE", (target_str, target_str)).fetchone()
+                        if row and Path(row[0]).is_file():
+                            return Path(row[0]).resolve()
+                        rows = con.execute("SELECT path, details FROM local_model_references").fetchall()
+                        for r_path, r_details in rows:
+                            if Path(r_path).is_file():
+                                if Path(r_path).name.lower() == target_str.lower():
+                                    return Path(r_path).resolve()
+                                try:
+                                    import json
+                                    d = json.loads(r_details)
+                                    if d.get("name", "").strip().lower() == target_str.lower() or d.get("declared", {}).get("name", "").strip().lower() == target_str.lower():
+                                        return Path(r_path).resolve()
+                                except Exception:
+                                    pass
+        except Exception:
+            pass
+        if target_str in self.cfg:
+            try:
+                return self.image_path(target_str)
+            except Exception:
+                pass
+        raise RuntimeError("The selected local model is unavailable. Re-import or reselect its exact GGUF file; no other model was loaded.")
+
     def ensure_chat(self, progress=lambda _s: None, model=None, cancel_event=None):
         with self.resource_lock, self.lock:
             self._raise_if_cancelled(cancel_event)
@@ -1652,44 +1856,53 @@ class EngineManager:
                     try:self.lm_runtime.unload_all(progress,None)
                     except Exception:pass
                     raise
-            model_path = self.image_path("gpt_oss_gguf")
+            model_path = self.resolve_model_path(model)
             model_file = Path(model_path)
             if not model_file.is_file():
-                raise RuntimeError(f"GPT-OSS GGUF model was not found: {model_path}. Choose the local model file in Settings.")
+                raise RuntimeError(f"Local GGUF model was not found: {model_path}. Choose the model file in Settings.")
             if self.runtime is None:
                 self.runtime = _LocalLlamaServer(self.log_dir)
+            gpu_layers=0 if self.cfg.get('chat_gpu')=='cpu' or self.cfg.get('chat_gpu_layers')==0 else 'auto'
             if (self.runtime and self.runtime.model_path == str(model_file.resolve())
-                    and not self.runtime.projector_path and self.runtime._is_healthy()):
-                self.active_gpu_layers = "auto"
-                self.requested_gpu_layers = "auto"
+                    and not self.runtime.projector_path and getattr(self.runtime,'loaded_gpu_layers',None)==str(gpu_layers)
+                    and getattr(self.runtime,'model_file_observation',None)==_LocalLlamaServer.file_observation(model_file)
+                    and self.runtime._is_healthy()):
+                self.active_gpu_layers = gpu_layers
+                self.requested_gpu_layers = gpu_layers
                 self.loaded_model = self.cfg.get("chat_model", "gpt-oss-20b-local")
                 self.active_chat_backend = "bundled"
+                if isinstance(getattr(self.runtime,'model_descriptor',None),ModelInfo):self.loaded_model=self.runtime.model_descriptor.display_name
+                elif model_file.stem != 'gpt-oss-20b':self.loaded_model=model_file.name
                 self.chat_load_state = "ready"
                 self.chat_last_error = ""
                 return self.loaded_model
-            self.requested_gpu_layers = "auto"
+            self.requested_gpu_layers = gpu_layers
             if getattr(self,'secondary_release',None):self.secondary_release()
             self.chat_load_state = "loading"
-            self.last_reload_reason = self.last_unload_reason or "Application startup or engine no longer healthy"
+            self.last_reload_reason = self.last_unload_reason or f"Starting model {model_file.name}"
             try:
                 memory = physical_memory_status()
                 context = int(self.cfg.get("chat_context", _LocalLlamaServer.CONTEXT))
-                profile = _local_memory_profile(memory, context)
+                hw_profile = self.cfg.get("hardware_profile", self.cfg.get("model_lifecycle_mode", "balanced"))
+                profile = _local_memory_profile(memory, context, hardware_profile=hw_profile)
                 context = int(profile["context"])
                 profile.update({
-                    "batch": min(64, int(profile["batch"])),
-                    "ubatch": min(32, max(16, int(profile["batch"]) // 2)), "gpu_layers": "auto",
+                    "batch": min(128, int(profile["batch"])),
+                    "ubatch": min(64, max(16, int(profile["batch"]) // 2)), "gpu_layers": gpu_layers,
                     "cpu_moe_layers": None,
                     "memory_mapped": profile.get("load_mode", "mmap") == "mmap",
                 })
                 self.chat_memory_profile = profile
-                self.runtime.start(model_path, context, "auto", progress, cancel_event, profile)
-                self.active_gpu_layers = "auto"
+                self.runtime.start(model_path, context, gpu_layers, progress, cancel_event, profile)
+                if type(getattr(self.runtime,'context',None)) is int:profile['context']=self.runtime.context
+                self.active_gpu_layers = gpu_layers
                 self.loaded_model = self.cfg.get("chat_model", "gpt-oss-20b-local")
+                if getattr(self.runtime,'model_descriptor',None):self.loaded_model=self.runtime.model_descriptor.display_name
+                elif model_file.stem != 'gpt-oss-20b':self.loaded_model=model_file.name
                 self.active_chat_backend = "bundled"
                 self.chat_load_state = "ready"
                 self.chat_last_error = ""
-                progress("GPT-OSS is ready in Offline GPT's private hybrid engine.")
+                progress(f"{self.loaded_model} is ready in Offline GPT's private hybrid engine.")
                 return self.loaded_model
             except Exception as exc:
                 self.chat_load_state = "error"
@@ -1786,6 +1999,22 @@ class EngineManager:
             model, projector = self._resolve_vision_model(refresh=True)
             vision_context = max(2048, min(8192, int(context or self.cfg.get("vision_context", 4096))))
             self._unload_chat_cancellable(progress, cancel_event)
+            # A measured 8B + projector load exhausted host staging RAM even
+            # after text-model release. Check the actual installed input sizes
+            # before another allocation, retaining the separate emergency stop.
+            model_bytes = Path(model).stat().st_size
+            projector_bytes = Path(projector).stat().st_size
+            vram_avail = (physical_memory_status().get('vram_available') or 0)
+            if vram_avail >= model_bytes * 0.7:
+                required_ram = projector_bytes + int(1.2 * 1024**3) + 512 * 1024**2
+            else:
+                required_ram = model_bytes + projector_bytes + 512 * 1024**2
+            available_ram = physical_memory_status().get('available')
+            if available_ram is None or available_ram<required_ram:
+                raise RuntimeError('VISION_RESOURCE_BLOCKED: the supplied image remains available. '
+                    f'Vision load needs conservative host headroom of {required_ram/1024**3:.2f} GiB for these model/projector inputs; '
+                    f'available RAM is {(available_ram or 0)/1024**3:.2f} GiB after releasing text inference. '
+                    'Close unused memory-heavy apps and retry. No image was analyzed or changed.')
             outputs = []
             loaded = False
             load_attempted = False
@@ -1855,7 +2084,8 @@ class EngineManager:
                     arch = meta.get("general.architecture", "unknown")
                     ctx = meta.get(f"{arch}.context_length", meta.get("general.context_length", 4096))
                     inspection = {
-                        "name": "".join(c for c in str(meta.get("general.name", "")) if c.isprintable())[:160].strip(),
+                        "name": model_display_name(meta.get("general.name", ""), meta.get("general.file_type")),
+                        "declaredName": str(meta.get("general.name", ""))[:160],
                         "architecture": str(arch),
                         "contextLength": int(ctx) if str(ctx).isdigit() or isinstance(ctx, (int, float)) else 4096,
                         "tensorCount": int(res.get("tensorCount", 0)),
@@ -1911,8 +2141,20 @@ class EngineManager:
             bionic_pid = self.lm_runtime.bionic_process.pid if self.lm_runtime.bionic_process and self.lm_runtime.bionic_process.poll() is None else None
         except Exception:
             bionic_pid = None
+        # Never describe a stopped/previous bundled model as the selected or
+        # external runtime. These fields describe the actual loaded adapter.
+        behavior=getattr(self.runtime,'behavior',None) if loaded and backend=='bundled' else None
+        descriptor=getattr(self.runtime,'model_descriptor',None) if loaded and backend=='bundled' else None
+        requested_gpu=0 if self.cfg.get('chat_gpu')=='cpu' or self.cfg.get('chat_gpu_layers')==0 else 'auto'
+        memory_profile=self.chat_memory_profile if loaded and backend=='bundled' and isinstance(self.chat_memory_profile,dict) else {}
         return {
             "modelName": model_name or "No model selected",
+            "modelRuntime": {
+                "adapter":"existing-engine-manager",
+                "responseFormat":behavior.family.value if isinstance(behavior,ModelBehavior) else 'not-loaded',
+                "metadataCapabilities":descriptor.capability_report() if isinstance(descriptor,ModelInfo) else None,
+                "nativeCapabilityAcceptance":"NOT_ESTABLISHED_BY_METADATA",
+            },
             "modelIdentitySource": identity_source,
             "modelSelectionState": selection_state,
             "modelSelectionMessage": guidance,
@@ -1936,13 +2178,14 @@ class EngineManager:
             "totalRamBytes": memory["total"],
             "pagefileAvailableBytes": memory["pagefile_available"],
             "freeGpuBytes": available_cuda_memory(),
-            "gpuLayers": "auto" if backend == "bundled" else None,
-            "activeGpuLayers": "auto" if loaded and backend == "bundled" else None,
-            "requestedGpuLayers": "auto",
-            "inferenceMode": "Offline GPT · automatic GPU placement" if backend == "bundled" else "LM Studio · automatic GPU placement",
+            "gpuLayers": requested_gpu if backend == "bundled" else None,
+            "activeGpuLayers": self.active_gpu_layers if loaded and backend == "bundled" else None,
+            "requestedGpuLayers": requested_gpu if backend=='bundled' else None,
+            "gpuPlacementEvidence": "launch arguments; actual tensor placement not independently measured" if loaded and backend=='bundled' else 'not-measured',
+            "inferenceMode": ("Offline GPT · CPU inference" if requested_gpu==0 else "Offline GPT · automatic GPU placement") if backend == "bundled" else "LM Studio · external runtime placement",
             "maxOutputTokens": _LocalLlamaServer.MAX_OUTPUT if backend == "bundled" else 1200,
             "cpuMoeLayers": _LocalLlamaServer.CPU_MOE_LAYERS if backend == "bundled" else None,
-            "memoryMappedModel": loaded,
+            "memoryMappedModel": memory_profile.get('memory_mapped') if type(memory_profile.get('memory_mapped')) is bool else None,
             "mmapSupported": True,
             "effectiveContext": context,
             "context": context,
@@ -2047,22 +2290,32 @@ class EngineManager:
         finally:self.resource_lock.release()
 
     def chat_completion(self, messages, progress=lambda _s: None, on_token=lambda _t: None,
-                        cancel_event=None, max_tokens=1200, temperature=0.2, connection_callback=None, top_p=None, allowed_tools=None, reasoning_effort=None):
+                        cancel_event=None, max_tokens=1200, temperature=0.2, connection_callback=None, top_p=None, allowed_tools=None, reasoning_effort=None, model=None, response_schema=None):
         with self.resource_lease(cancel_event):
             with self.lock:
                 self._cancel_idle_timer()
                 self._active_inference_count += 1
                 self._current_generation_id += 1
             try:
-                self.ensure_chat(progress, cancel_event=cancel_event)
+                self.ensure_chat(progress, model=model, cancel_event=cancel_event)
+                if self.cfg.get('chat_backend','bundled')=='bundled':
+                    descriptor=getattr(self.runtime,'model_descriptor',None)
+                    self.last_completion_identity={'backend':'bundled','modelName':self.loaded_model,
+                        'modelPath':getattr(self.runtime,'model_path',None),
+                        'architecture':descriptor.architecture if isinstance(descriptor,ModelInfo) else None,
+                        'headerMetadataSha256':descriptor.header_sha256 if isinstance(descriptor,ModelInfo) else None,
+                        'fileObservation':getattr(self.runtime,'model_file_observation',None),
+                        'context':self.runtime.context,'identityScope':'file observation and inspected metadata; not full tensor verification'}
+                else:self.last_completion_identity={'backend':'lmstudio','modelName':self.lm_runtime.loaded_model,'identityScope':'external runtime reported model identity'}
                 adapter = ExistingTextAdapter(self, self.cfg.get("chat_backend", "bundled"))
+                structured_options={'response_schema':response_schema} if response_schema is not None else {}
                 result = adapter.complete(
                     messages, max_tokens=max_tokens, temperature=temperature,
                     cancel_event=cancel_event, on_token=on_token, progress=progress,
                     connection_callback=connection_callback, top_p=top_p,
-                    allowed_tools=allowed_tools, reasoning_effort=reasoning_effort,
+                    allowed_tools=allowed_tools, reasoning_effort=reasoning_effort,**structured_options,
                 )
-                self.record_chat_test("passed", "The selected local GPT-OSS engine returned a complete response.", result)
+                self.record_chat_test("passed", "The selected local text engine returned a complete response.", result)
                 return result
             except Exception as exc:
                 if str(exc).lower() == "cancelled":

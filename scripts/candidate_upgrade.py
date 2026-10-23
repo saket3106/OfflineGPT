@@ -44,7 +44,7 @@ class Upgrade:
         value=json.loads((path/'journal.json').read_text(encoding='utf-8')) if (path/'journal.json').exists() else {}
         value.update(status=status,updated=time.time(),**fields);b.save(path/'events'/(uuid.uuid4().hex+'.json'),value);b.save(path/'journal.json',value);return value
     def prepare(self):
-        with b.auto.exclusive(self.manager.lock),b.auto.exclusive(self.controller.lock):
+        with self.manager.publication_lock(),b.auto.exclusive(self.controller.lock):
             if any(json.loads(p.read_text())['status'] not in DONE for p in self.directory.glob('*/journal.json')):raise Error('Resolve the existing candidate-runtime journal')
             commit=self.manager.head();self.accepted(commit)
             if commit==self.old['commit']:raise Error('Candidate worker already uses this revision')
@@ -92,7 +92,7 @@ class Upgrade:
         if base.definition(snapshot['xml'])!=value['definition'] or snapshot['running']:raise Error('Candidate task is active or its settings changed')
         return path,value,snapshot
     def apply(self,identifier):
-        with b.auto.exclusive(self.manager.lock),b.auto.exclusive(self.controller.lock):
+        with self.manager.publication_lock(),b.auto.exclusive(self.controller.lock):
             path,value,task=self.load(identifier);self.accepted(value['commit'])
             if value['status']!='PREPARED' or r.sha(self.path)!=value['oldSha256'] or task['action']!=value['oldAction'] or task['enabled']!=value['wasEnabled']:raise Error('Old candidate worker no longer matches its reviewed plan')
             self.record(path,'DISABLING');self.task.enable(False)
@@ -101,12 +101,12 @@ class Upgrade:
             self.record(path,'ACTION_PENDING');self.task.action(value['newAction']);self.record(path,'VERIFY_PENDING',applied=time.time());self.task.enable(value['wasEnabled'])
             return json.loads((path/'journal.json').read_text())
     def verify(self,identifier):
-        with b.auto.exclusive(self.manager.lock),b.auto.exclusive(self.controller.lock):
+        with self.manager.publication_lock(),b.auto.exclusive(self.controller.lock):
             path,value,task=self.load(identifier);receipt=json.loads((self.root/'last-worker-run.json').read_text());result=self.task.result()
             if value['status']!='VERIFY_PENDING' or r.sha(self.path)!=value['newSha256'] or task['action']!=value['newAction'] or task['enabled']!=value['wasEnabled'] or result['result']!=0 or result['running'] or receipt['controllerCommit']!=value['commit'] or receipt['returnCode']!=0 or receipt['status'] not in {'IDLE','PAUSED'} or receipt['started']<value['applied'] or not result['lastRun']<=receipt['started']<=result['lastRun']+10:raise Error('Fresh successful scheduled candidate receipt required')
             return self.record(path,'COMPLETE',scheduledReceipt=receipt,verified=time.time(),actualBuildRun=False,artifactReused=True)
     def rollback(self,identifier):
-        with b.auto.exclusive(self.manager.lock),b.auto.exclusive(self.controller.lock):
+        with self.manager.publication_lock(),b.auto.exclusive(self.controller.lock):
             path,value,task=self.load(identifier)
             if value['status'] in DONE or r.sha(self.path) not in {value['oldSha256'],value['newSha256']} or task['action'] not in (value['oldAction'],value['newAction']):raise Error('Unknown/terminal worker state; do not overwrite it')
             self.record(path,'ROLLBACK_PENDING');self.task.enable(False);b.auto.sync.atomic_write(self.path,(path/'old-worker.json').read_bytes());self.task.action(value['oldAction']);self.task.enable(value['wasEnabled'])

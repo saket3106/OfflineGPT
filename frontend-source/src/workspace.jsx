@@ -1,4 +1,4 @@
-import React,{useState,useEffect,useRef} from 'react';
+import React,{useState,useEffect,useRef,useMemo} from 'react';
 
 import ReactMarkdown from 'react-markdown';
 
@@ -52,6 +52,8 @@ export function DocumentWorkspace({bridge,onPrompt,onAttach}){
 
   const job=useJob(bridge);
 
+  const visibleDocuments=useMemo(()=>library.documents.filter(d=>(!collection||d.collections.includes(collection))&&d.name.toLowerCase().includes(filter.toLowerCase())),[library.documents,collection,filter]);
+
   const reload=async()=>{const r=await job.run('documents',{});if(r)setLibrary(r.value)};
 
   const index=async paths=>{if(!paths?.length)return;const r=await job.run('index',{paths,collectionId:collection});if(r)reload()};
@@ -62,7 +64,7 @@ export function DocumentWorkspace({bridge,onPrompt,onAttach}){
 
   const add=async()=>{const files=parse(await call(bridge,'pickAttachment','document'),[]);index(Array.isArray(files)?files.map(f=>typeof f==='string'?f:f.path):files.path?[files.path]:[])};
 
-  return <section className="workspace-view local-workspace"><div className="workspace-heading"><div className="eyebrow">LOCAL WORKSPACE</div><h1>Documents & code</h1><p>Keep source files in place. Search indexed evidence or ask GPT-OSS to explain it.</p></div>
+  return <section className="workspace-view local-workspace"><div className="workspace-heading"><div className="eyebrow">YOUR SOURCES</div><h1>Documents & code</h1><p>Keep source files in place. Search indexed evidence or ask your local chat model to explain it.</p></div>
 
     <div className="workspace-toolbar"><button aria-pressed={tab==='documents'} onClick={()=>setTab('documents')}>Document Library</button><button aria-pressed={tab==='code'} onClick={()=>setTab('code')}>Code tools</button></div>
 
@@ -72,7 +74,7 @@ export function DocumentWorkspace({bridge,onPrompt,onAttach}){
 
     <input className="workspace-input" aria-label="Filter documents" value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Filter documents by filename…"/>
 
-    <div className="document-list">{library.documents.filter(d=>(!collection||d.collections.includes(collection))&&d.name.toLowerCase().includes(filter.toLowerCase())).map(d=><article className="document-row" key={d.id}><div><strong>{d.name}</strong><small>{d.missing?'Source missing':d.metadata.pages?`${d.metadata.pages} physical PDF pages`:d.metadata.slides?`${d.metadata.slides} slides`:'Text source'} · {d.metadata.extraction}</small></div><button onClick={()=>call(bridge,'openDocumentSource',d.id,0)}>Open source</button><button disabled={!!job.running||d.missing} onClick={()=>index([d.path])}>Reindex / assign</button><button disabled={!!job.running} onClick={async()=>{await job.run('remove',{documentId:d.id});reload()}}>Remove index</button></article>)}{!library.documents.length&&<p className="workspace-note">Add or drop PDF, TXT, Markdown, DOCX or PPTX files. Scanned pages need OCR; selectable text is indexed locally.</p>}</div>
+    <div className="document-list" aria-label="Indexed documents">{visibleDocuments.map(d=><article className="document-row" key={d.id}><div><strong>{d.name}</strong><small>{d.missing?'Source missing':d.metadata.pages?`${d.metadata.pages} physical PDF pages`:d.metadata.slides?`${d.metadata.slides} slides`:'Text source'} · {d.metadata.extraction}</small></div><button onClick={()=>call(bridge,'openDocumentSource',d.id,0)}>Open source</button><button disabled={!!job.running||d.missing} onClick={()=>index([d.path])}>Reindex / assign</button><button disabled={!!job.running} onClick={async()=>{await job.run('remove',{documentId:d.id});reload()}}>Remove index</button></article>)}{!visibleDocuments.length&&<div className="document-empty"><strong>{library.documents.length?"No matching sources":"Bring your sources into focus"}</strong><p className="workspace-note">{library.documents.length?"Try another filename or collection. Your indexed files are unchanged.":"Add or drop PDF, TXT, Markdown, DOCX or PPTX files. Selectable text is indexed locally; scanned pages need OCR."}</p></div>}</div>
 
     <form className="workspace-query" onSubmit={async e=>{e.preventDefault();setResult(null);const r=await job.run(exact?'search':'question',{query,exact,semantic,collectionId:collection,documentId:source});if(r)setResult({...r.value,durationMs:r.durationMs})}}><select aria-label="Source filter" value={source} onChange={e=>setSource(e.target.value)}><option value="">All sources in collection</option>{library.documents.filter(d=>!collection||d.collections.includes(collection)).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select><textarea value={query} onChange={e=>setQuery(e.target.value)} placeholder="Ask a question, compare sources, or enter an exact phrase…" aria-label="Document question"/><label><input type="checkbox" checked={exact} onChange={e=>setExact(e.target.checked)}/> Exact phrase · deterministic literal search</label>{!exact&&<label><input type="checkbox" checked={semantic} onChange={e=>setSemantic(e.target.checked)}/> Semantic query expansion · extra local model call</label>}<button disabled={!!job.running||!query.trim()}>{exact?'Search phrase':'Ask with evidence'}</button><button type="button" disabled={!!job.running||!library.documents.length} onClick={async()=>{setResult(null);const r=await job.run('question',{query:query||'Summarize these sources and their limitations.',summary:true,collectionId:collection,documentId:source});if(r)setResult({...r.value,durationMs:r.durationMs})}}>Summarize selected sources</button></form>
 

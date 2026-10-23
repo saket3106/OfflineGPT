@@ -2,12 +2,12 @@
   "version": 1,
   "managed": {
     "Offline GPT.spec": {
-      "source": "0bc1a2e3ad7f503e3d40c645900bc99f74b8baa5ee2f8145b25ced8ab5a510d5",
-      "repository": "0bc1a2e3ad7f503e3d40c645900bc99f74b8baa5ee2f8145b25ced8ab5a510d5"
+      "source": "22bc6618f8b992dd92c1eb971a8b4135baadfb669efcd35249e5607b6dd0e380",
+      "repository": "22bc6618f8b992dd92c1eb971a8b4135baadfb669efcd35249e5607b6dd0e380"
     },
     "app.py": {
-      "source": "5bb37b71d5173be9cd64cc4c8d979b6ce74b082c4eafd71ea728f4c07cb8fd89",
-      "repository": "5bb37b71d5173be9cd64cc4c8d979b6ce74b082c4eafd71ea728f4c07cb8fd89"
+      "source": "aabc33707d64aaf2bef3d7f5f6f692fd2723ba0de74a401bad17005dcb2f9fe0",
+      "repository": "aabc33707d64aaf2bef3d7f5f6f692fd2723ba0de74a401bad17005dcb2f9fe0"
     },
     "assistant_system_prompt.md": {
       "source": "b810292701ca5f49b5ca5991fee7ee56bbc35be0f629e17064ec45cff7d73a19",
@@ -18,12 +18,12 @@
       "repository": "133cce202b5f9c3ac026a2c924f7fa9cb21633a637da8bd19ff5b68c07d1b0a1"
     },
     "conversation_memory.py": {
-      "source": "5d412c24f69fcdd8797c49e147deacb288f3a2e7bedadbe226fd1ebdd7d4ed05",
-      "repository": "5d412c24f69fcdd8797c49e147deacb288f3a2e7bedadbe226fd1ebdd7d4ed05"
+      "source": "639d465454dee5475970820ff7462090f15ea3858462a9bb5bf99496404ae47f",
+      "repository": "639d465454dee5475970820ff7462090f15ea3858462a9bb5bf99496404ae47f"
     },
     "document_tools.py": {
-      "source": "2aa23fa97737c6b64135be0683b43f328a4cf60dffdde46dce4b88c143f46a26",
-      "repository": "2aa23fa97737c6b64135be0683b43f328a4cf60dffdde46dce4b88c143f46a26"
+      "source": "088c33665c36b94d2821b6761fd9238be5ee5af5c890aa3286a0c8c6b8b55739",
+      "repository": "088c33665c36b94d2821b6761fd9238be5ee5af5c890aa3286a0c8c6b8b55739"
     },
     "evals/datasets/core.jsonl": {
       "source": "bb868da0a87dcf95befef99a0577d8ad8c082cb51df9cd14f14708c18832ab29",
@@ -142,16 +142,16 @@
       "repository": "8f360d391327fe80774c6a955be6081c391a7081f8c10e4910eff4bf3c0a1a95"
     },
     "frontend-source/src/main.jsx": {
-      "source": "992816240762adefcb18e39f5efd9e58f363d6c50ba0dae1f6862a499cbd5836",
-      "repository": "992816240762adefcb18e39f5efd9e58f363d6c50ba0dae1f6862a499cbd5836"
+      "source": "e415c166cf4e5e0f08cc74a00c48432d39ebdb53d7112d48efa19afcc6051adb",
+      "repository": "e415c166cf4e5e0f08cc74a00c48432d39ebdb53d7112d48efa19afcc6051adb"
     },
     "frontend-source/src/styles.css": {
-      "source": "cd1b7096d98255ecc21ef9088e9a4351061d2455b33cc2945d5053510c35d926",
-      "repository": "cd1b7096d98255ecc21ef9088e9a4351061d2455b33cc2945d5053510c35d926"
+      "source": "f7a601b9c26fd027dd62b755efc2a866beb7e8eb78e5e7eb839df14c6f44bdc4",
+      "repository": "f7a601b9c26fd027dd62b755efc2a866beb7e8eb78e5e7eb839df14c6f44bdc4"
     },
     "frontend-source/src/workspace.jsx": {
-      "source": "442744af03de82b9e9a61dedf2ca8da95f43d0fbb35fddedbc56fa50e41d82a4",
-      "repository": "442744af03de82b9e9a61dedf2ca8da95f43d0fbb35fddedbc56fa50e41d82a4"
+      "source": "188f97158a2391a258505ccd8c93b1ee14fcea0b73ea3dc1cbe90614dd165ca3",
+      "repository": "188f97158a2391a258505ccd8c93b1ee14fcea0b73ea3dc1cbe90614dd165ca3"
     },
     "frontend-source/tailwind.config.js": {
       "source": "682490b7ada1aa4f398147244288521feb6ad88d7228cb67b5a3ada0df23aa08",
@@ -170,8 +170,8 @@
       "repository": "6f566439cee141675aa14072215edd2d064a48411618a5d732bdedde1e54af67"
     },
     "integrated_runtime.py": {
-      "source": "63744e7f5fc3d408724dd065980dc2520c1a82f2bc13a2a2074beb9e35993c73",
-      "repository": "63744e7f5fc3d408724dd065980dc2520c1a82f2bc13a2a2074beb9e35993c73"
+      "source": "c836983ffd1575f35c2cdd88013b2524ee985fc8630840ebb581578aaa8feb9e",
+      "repository": "c836983ffd1575f35c2cdd88013b2524ee985fc8630840ebb581578aaa8feb9e"
     },
     "intelligence.py": {
       "source": "0338c8b0d23b653a99af1c85a009de72640e6aa7388d410a6d8c236c4c3d52f3",
@@ -182,8 +182,8 @@
       "repository": "62c59b3c1b7be4e7fa4d9de61c73218dfb366a7b99c46a0485c1a6424e5bb594"
     },
     "math_engine.py": {
-      "source": "468f5b50f0e3b841fc22cc96a2e0d40ff467c9a812e7a3350addef822a64b35d",
-      "repository": "468f5b50f0e3b841fc22cc96a2e0d40ff467c9a812e7a3350addef822a64b35d"
+      "source": "af9d6ddfaff6ae250ee0bd512c302ec4d8cd8965e9bfcab1390309996b68d2f5",
+      "repository": "af9d6ddfaff6ae250ee0bd512c302ec4d8cd8965e9bfcab1390309996b68d2f5"
     },
     "memory_manager.py": {
       "source": "a510812435bb5976ceb588b1db29994534ff4207fe46e136e54ea8d4a3e08770",
@@ -198,8 +198,8 @@
       "repository": "01634fee2acda1cb38e9b725f7113b2be91d9f3b00c4775e68feef1bf587916d"
     },
     "router.py": {
-      "source": "f7a51f3205b64ef9b23b9d012d2d554c0ccb345c1dcebb6fb45433ebe184ec7c",
-      "repository": "f7a51f3205b64ef9b23b9d012d2d554c0ccb345c1dcebb6fb45433ebe184ec7c"
+      "source": "7e946004aec4a9bb279ee524c69eb13e64fd09ff329e38e3acfaa6d6288558c8",
+      "repository": "7e946004aec4a9bb279ee524c69eb13e64fd09ff329e38e3acfaa6d6288558c8"
     },
     "tests/test_comprehensive_sprint.py": {
       "source": "845edfe250d91e541292bdf372459e7d9b26a754cd285b0abf0753577a1e7409",
@@ -234,8 +234,8 @@
       "repository": "888bfd97e110cb40011d9e22e27276ffd3252aeea3480fbc4812eb953aa90619"
     },
     "tests/test_installed_e2e_repairs.py": {
-      "source": "941238f3f27f329990793042b665481b560c80d1f15da389e4f9b09b4f194296",
-      "repository": "941238f3f27f329990793042b665481b560c80d1f15da389e4f9b09b4f194296"
+      "source": "caadb0904cde66c346db207a3941de4b15c72c2963db00c95348460b6fe415ba",
+      "repository": "caadb0904cde66c346db207a3941de4b15c72c2963db00c95348460b6fe415ba"
     },
     "tests/test_instant_read_aloud.py": {
       "source": "e3c5aac8856575f4ae1843da2fe45aebf38346a75246419ad89469d62ffda85f",
@@ -262,12 +262,12 @@
       "repository": "a2b7a217007ae4ff35090e01cfe295ecd3730b3e426d3cd37f45ba7f05a8e39b"
     },
     "tests/test_performance_and_lifecycle.py": {
-      "source": "665b4cb3de5393d747693418ccf16051a309e14fb80f117343e136eab3539327",
-      "repository": "665b4cb3de5393d747693418ccf16051a309e14fb80f117343e136eab3539327"
+      "source": "1e741878a60e5b4da38bc3030d4a27182d0b05396a9a4865c31ac73f9a02c2e1",
+      "repository": "1e741878a60e5b4da38bc3030d4a27182d0b05396a9a4865c31ac73f9a02c2e1"
     },
     "tests/test_premium_workspace.py": {
-      "source": "281b24b3ca69bab04649d7cf4688f0a5b4ec367158c0abb8ae5866636f0c1243",
-      "repository": "281b24b3ca69bab04649d7cf4688f0a5b4ec367158c0abb8ae5866636f0c1243"
+      "source": "f1d3e3955a7bba9a069f11d14daee81396d0bcf5e1836eaf02bf2f89c9f2f517",
+      "repository": "f1d3e3955a7bba9a069f11d14daee81396d0bcf5e1836eaf02bf2f89c9f2f517"
     },
     "tests/test_reliability_repair.py": {
       "source": "47959f264127106a5bafd68934c354bdb30fb80f5ca276bbe9cb1f4d33d53c94",
@@ -286,8 +286,8 @@
       "repository": "1f887359ad6579694779a5b7eb39aed1f2ea5f1013fff81843f257726b44a5c9"
     },
     "tool_registry.py": {
-      "source": "8c5b6b5b01f2a3f1f889675ee91ae5e3e0a9c256494332a836af856a6c1db964",
-      "repository": "8c5b6b5b01f2a3f1f889675ee91ae5e3e0a9c256494332a836af856a6c1db964"
+      "source": "0114a5b8e103993ebe2bd64ba8385e28a68f436487331732ea763cac67a7ad5b",
+      "repository": "0114a5b8e103993ebe2bd64ba8385e28a68f436487331732ea763cac67a7ad5b"
     },
     "tool_workflow.py": {
       "source": "95db64c0e57d8c34d3feaec63da25d38c1b7db53d5ec44805d2614d068151fa4",
@@ -298,8 +298,8 @@
       "repository": "135d0877ec511a5babcb36f6fa9dedbd7672e136e23ec6aa333c527bf6e581b5"
     },
     "voice_runtime.py": {
-      "source": "88f3533b40cbf055243a7696cfa112cd2e0ce38780db8c9cbc98118d439a458e",
-      "repository": "88f3533b40cbf055243a7696cfa112cd2e0ce38780db8c9cbc98118d439a458e"
+      "source": "252a449ccf747a2246894aee1d7f76555f60f846df7395c0fef6163c8b2084e8",
+      "repository": "252a449ccf747a2246894aee1d7f76555f60f846df7395c0fef6163c8b2084e8"
     },
     "workspace_services.py": {
       "source": "f8595df5e1e31b5c0dcd1cccc7fc1f94412a370588460c59fe5b24e572f2ff1e",
@@ -338,20 +338,208 @@
       "repository": "6cf6142c52470b915889fefb43a549aae3c93f67a63e03d39ea29411ab9a5556"
     },
     "runtime_contracts.py": {
-      "source": "350d1d41d4b2e0ffc72e4fbf5e904a71b16ca4c74efcbf62c3eea6986e6a2ead",
-      "repository": "350d1d41d4b2e0ffc72e4fbf5e904a71b16ca4c74efcbf62c3eea6986e6a2ead"
+      "source": "8ae9df08246cf13b254ebafca924c406c35e1327ec5c13b0d587960681cce263",
+      "repository": "8ae9df08246cf13b254ebafca924c406c35e1327ec5c13b0d587960681cce263"
     },
     "tests/test_runtime_contracts.py": {
-      "source": "dc4c5f6c9ab60fec94cfd6714a817150d783e8fb55f91460a01d94d24431c22d",
-      "repository": "dc4c5f6c9ab60fec94cfd6714a817150d783e8fb55f91460a01d94d24431c22d"
+      "source": "c9582e2b76f7b033b8a4665a9150175f6cb3f633616062921005f0a6bcc1d14e",
+      "repository": "c9582e2b76f7b033b8a4665a9150175f6cb3f633616062921005f0a6bcc1d14e"
     },
     "model_inspection.py": {
-      "source": "bf1d55a60c61c6651adc5b826e003ea1dec457abb41dfa454cdc3c8e1e2cb578",
-      "repository": "bf1d55a60c61c6651adc5b826e003ea1dec457abb41dfa454cdc3c8e1e2cb578"
+      "source": "9efe789d691d17dbcd323dc7873e1588f3fe2f8558846d97bdc3a27d51106747",
+      "repository": "9efe789d691d17dbcd323dc7873e1588f3fe2f8558846d97bdc3a27d51106747"
     },
     "tests/test_model_inspection.py": {
-      "source": "9f68dfccfa21d2da4c6641fb6b63c7c8195e3225f7b249cd9ba0068ee4018dfe",
-      "repository": "9f68dfccfa21d2da4c6641fb6b63c7c8195e3225f7b249cd9ba0068ee4018dfe"
+      "source": "b29220b161a4a70462952d0987770349781b0a4ada4f5164d57c721639644e24",
+      "repository": "b29220b161a4a70462952d0987770349781b0a4ada4f5164d57c721639644e24"
+    },
+    "agent_artifacts.py": {
+      "source": "c1d76e9ecfd3d088cc46a8a7b27063f70d819ae814be40138e4869b4a8e8ff01",
+      "repository": "c1d76e9ecfd3d088cc46a8a7b27063f70d819ae814be40138e4869b4a8e8ff01"
+    },
+    "agent_desktop.py": {
+      "source": "938fae8e032b16337cc2b7ea391dd777158be97902622774c90c9a13339aad00",
+      "repository": "938fae8e032b16337cc2b7ea391dd777158be97902622774c90c9a13339aad00"
+    },
+    "agent_mcp.py": {
+      "source": "322c0498cd7c9f92c8c537b0327836bbc63eaba60d330e1046ecc45444745613",
+      "repository": "322c0498cd7c9f92c8c537b0327836bbc63eaba60d330e1046ecc45444745613"
+    },
+    "agent_memory.py": {
+      "source": "bc0f76811ead8e645342e71913c366aa3fe3f468cf5dcfd256e31bc220964248",
+      "repository": "bc0f76811ead8e645342e71913c366aa3fe3f468cf5dcfd256e31bc220964248"
+    },
+    "agent_packaging.py": {
+      "source": "2775bb8f4524afd18f2cd07d2b8ad857d03823c500ba8f736a3a1b40810c90c5",
+      "repository": "2775bb8f4524afd18f2cd07d2b8ad857d03823c500ba8f736a3a1b40810c90c5"
+    },
+    "agent_permissions.py": {
+      "source": "9ab704a10b4b87f1cc3cf4155377a117200aed9319b7e38ffd7dcbf3271527c0",
+      "repository": "9ab704a10b4b87f1cc3cf4155377a117200aed9319b7e38ffd7dcbf3271527c0"
+    },
+    "agent_resources.py": {
+      "source": "9832cdecf1a9cb652ebca177145c32340400b339adb0b5aa4c46a6064ccad752",
+      "repository": "9832cdecf1a9cb652ebca177145c32340400b339adb0b5aa4c46a6064ccad752"
+    },
+    "agent_runtime.py": {
+      "source": "1fe196c8c90ca0e331a0785fa5a6c449d514848c1a177df2ab156637bc48d9d0",
+      "repository": "1fe196c8c90ca0e331a0785fa5a6c449d514848c1a177df2ab156637bc48d9d0"
+    },
+    "agent_workspace.py": {
+      "source": "1b111b3d345a45f480b1fe6638be487a202fa08b290565b6ed8b201bdb6c1eff",
+      "repository": "1b111b3d345a45f480b1fe6638be487a202fa08b290565b6ed8b201bdb6c1eff"
+    },
+    "docs/AGENT_MODE.md": {
+      "source": "2c0f6e949e73a2b72e110bd8ad10302173e282d9ab07618c5826a4b967189da9",
+      "repository": "2c0f6e949e73a2b72e110bd8ad10302173e282d9ab07618c5826a4b967189da9"
+    },
+    "docs/MODEL_MANAGER.md": {
+      "source": "abe52880917640ff93d883fff74b88f89cbcd9e2a07283e2adb5e129fe3b4768",
+      "repository": "abe52880917640ff93d883fff74b88f89cbcd9e2a07283e2adb5e129fe3b4768"
+    },
+    "docs/MODEL_RUNTIME.md": {
+      "source": "8e29cd008b29c6a59c973c9b4d1b36236690b18f72ed8f81690b924afcf501d4",
+      "repository": "8e29cd008b29c6a59c973c9b4d1b36236690b18f72ed8f81690b924afcf501d4"
+    },
+    "frontend-source/src/agent.jsx": {
+      "source": "a00a5e78b6c90e1679cba240a57d2d0706efaa85519966344192cd5d625ab676",
+      "repository": "a00a5e78b6c90e1679cba240a57d2d0706efaa85519966344192cd5d625ab676"
+    },
+    "frontend-source/src/controls.jsx": {
+      "source": "2abbe3763eddda7f9379384a3959469e9364147f653e0727d0463b202fc5c174",
+      "repository": "2abbe3763eddda7f9379384a3959469e9364147f653e0727d0463b202fc5c174"
+    },
+    "frontend-source/src/models.jsx": {
+      "source": "60e1fd35011cbe32845be25d682f9b5ec1d5542a61347033a6721953529b95ef",
+      "repository": "60e1fd35011cbe32845be25d682f9b5ec1d5542a61347033a6721953529b95ef"
+    },
+    "model_library.py": {
+      "source": "cac605bfb5213ea8f43ecaceabf3410e041df2d07144532f7a9cb9b81086b38f",
+      "repository": "cac605bfb5213ea8f43ecaceabf3410e041df2d07144532f7a9cb9b81086b38f"
+    },
+    "model_runtime.py": {
+      "source": "854dbe0bb55fa9be2b0c64f27a0b0bfc5fccbd5943b319735bac7593c91f1ba3",
+      "repository": "854dbe0bb55fa9be2b0c64f27a0b0bfc5fccbd5943b319735bac7593c91f1ba3"
+    },
+    "requirements-agent-windows-py312.lock": {
+      "source": "930378c60b5dccb0cda042485d45f713166273ff4e1b19807e1b4b17ce5a39b9",
+      "repository": "930378c60b5dccb0cda042485d45f713166273ff4e1b19807e1b4b17ce5a39b9"
+    },
+    "requirements-agent.txt": {
+      "source": "1efa938702066524ae1c15d4bcd8a0830e6cddeaca107dfb13a6de5b83816235",
+      "repository": "1efa938702066524ae1c15d4bcd8a0830e6cddeaca107dfb13a6de5b83816235"
+    },
+    "tests/qt_agent_check.py": {
+      "source": "caef4b1901673312208375c1cca67b5e5790242e4419bc1ea9803e08f728fd94",
+      "repository": "caef4b1901673312208375c1cca67b5e5790242e4419bc1ea9803e08f728fd94"
+    },
+    "tests/qt_image_settings_check.py": {
+      "source": "54ece1107b540b36a6ec1f3dd64fa9655af9805470f02fc9b8c709fb0cc66752",
+      "repository": "54ece1107b540b36a6ec1f3dd64fa9655af9805470f02fc9b8c709fb0cc66752"
+    },
+    "tests/qt_model_manager_check.py": {
+      "source": "a46cab1b48d61d412dccfe1155de4a22a9bd432dc14514225cca302f4c0007a6",
+      "repository": "a46cab1b48d61d412dccfe1155de4a22a9bd432dc14514225cca302f4c0007a6"
+    },
+    "tests/test_agent_artifacts.py": {
+      "source": "f4778aa5556eb5b59483150bb4e6882f6e8bb71c22c261ed96c18c9b7ff89f8b",
+      "repository": "f4778aa5556eb5b59483150bb4e6882f6e8bb71c22c261ed96c18c9b7ff89f8b"
+    },
+    "tests/test_agent_bootstrap.py": {
+      "source": "1ce99518833e363b09b356804f44745a8bb85aa499b86f93cf3652c7c7d1094e",
+      "repository": "1ce99518833e363b09b356804f44745a8bb85aa499b86f93cf3652c7c7d1094e"
+    },
+    "tests/test_agent_calculator.py": {
+      "source": "05e7af6854cf0d7ea8c1b245d3886683c0880143423f5bd9ab4aa018609cc632",
+      "repository": "05e7af6854cf0d7ea8c1b245d3886683c0880143423f5bd9ab4aa018609cc632"
+    },
+    "tests/test_agent_completion_safety.py": {
+      "source": "d91aa322067631b7c31a9191e3653a42eccae19bbadd31f674eb7938775d1fb9",
+      "repository": "d91aa322067631b7c31a9191e3653a42eccae19bbadd31f674eb7938775d1fb9"
+    },
+    "tests/test_agent_large_observation.py": {
+      "source": "f5e9d3f46c55d17e17461e192f038d3f4e468049f4127bd35344a67437f01d2d",
+      "repository": "f5e9d3f46c55d17e17461e192f038d3f4e468049f4127bd35344a67437f01d2d"
+    },
+    "tests/test_agent_memory.py": {
+      "source": "eabab7cc69f2a95ae659e14e82bdb8c38b2f89ef981db014ed2ae8e492fcb399",
+      "repository": "eabab7cc69f2a95ae659e14e82bdb8c38b2f89ef981db014ed2ae8e492fcb399"
+    },
+    "tests/test_agent_orchestration.py": {
+      "source": "ca5a17bd6bda6d53029fb53f7d5e234272ac6e0b5ab78697800513e8a97c2ad2",
+      "repository": "ca5a17bd6bda6d53029fb53f7d5e234272ac6e0b5ab78697800513e8a97c2ad2"
+    },
+    "tests/test_agent_packaging.py": {
+      "source": "4bd1c5a86b4882895f645c4ea4045501d2fc079f2f8fbbc9ca3ed513f621e185",
+      "repository": "4bd1c5a86b4882895f645c4ea4045501d2fc079f2f8fbbc9ca3ed513f621e185"
+    },
+    "tests/test_agent_runtime.py": {
+      "source": "12184c2b6fb47367b60bc272a77ebfbb3d1ddfbecfcbbce7b1017f44445c2e41",
+      "repository": "12184c2b6fb47367b60bc272a77ebfbb3d1ddfbecfcbbce7b1017f44445c2e41"
+    },
+    "tests/test_agent_safety_regression.py": {
+      "source": "be3f7191338d83e44bd17fa6fe4d8957edf879029cce40743e5f1bd1503968d9",
+      "repository": "be3f7191338d83e44bd17fa6fe4d8957edf879029cce40743e5f1bd1503968d9"
+    },
+    "tests/test_agent_voice_repair.py": {
+      "source": "dcbe3b53f109ffd897897ef8824cf5b1dd219ad83c54b127f3b115420f46f810",
+      "repository": "dcbe3b53f109ffd897897ef8824cf5b1dd219ad83c54b127f3b115420f46f810"
+    },
+    "tests/test_chat_model_selection.py": {
+      "source": "9bc4347e28cfd5eb80a45656c5cba75d64039fecaba1fda43130cfcd1bd475ed",
+      "repository": "9bc4347e28cfd5eb80a45656c5cba75d64039fecaba1fda43130cfcd1bd475ed"
+    },
+    "tests/test_complete_arithmetic.py": {
+      "source": "318d6ec1328e617bc2fa3801076162dbc4527b6d0977698dbeca560162ed1dd0",
+      "repository": "318d6ec1328e617bc2fa3801076162dbc4527b6d0977698dbeca560162ed1dd0"
+    },
+    "tests/test_disposable_workspace_acceptance.py": {
+      "source": "9ff228fa79d8576380ad103a603521fbcc0d552bc9bdd7e2f4f73424b901a537",
+      "repository": "9ff228fa79d8576380ad103a603521fbcc0d552bc9bdd7e2f4f73424b901a537"
+    },
+    "tests/test_format_quantity_scope.py": {
+      "source": "a5e220915887980d3eed8dabfe9554319d351ed367d5620acc64f677c5a52c2e",
+      "repository": "a5e220915887980d3eed8dabfe9554319d351ed367d5620acc64f677c5a52c2e"
+    },
+    "tests/test_hardware_profiles.py": {
+      "source": "e4ea03b878d123b91331b9ccb2ef4dc6c6cc53a4d0e2cdebaba81cc9c792eb39",
+      "repository": "e4ea03b878d123b91331b9ccb2ef4dc6c6cc53a4d0e2cdebaba81cc9c792eb39"
+    },
+    "tests/test_literal_document_export.py": {
+      "source": "c928066d3e198c6063f1871a56cbfe225cc9d2211ff4551549c680350c6c6889",
+      "repository": "c928066d3e198c6063f1871a56cbfe225cc9d2211ff4551549c680350c6c6889"
+    },
+    "tests/test_model_library.py": {
+      "source": "a8fef7cbfdffab7a104c695fb3048344d1f51cded1eaf5588c9f5fff53841127",
+      "repository": "a8fef7cbfdffab7a104c695fb3048344d1f51cded1eaf5588c9f5fff53841127"
+    },
+    "tests/test_model_runtime.py": {
+      "source": "735f727551c9c14bd6b10cd9b3188d6310aa319cb29ec99c11f258db33f63444",
+      "repository": "735f727551c9c14bd6b10cd9b3188d6310aa319cb29ec99c11f258db33f63444"
+    },
+    "tests/test_native_agent_suite.py": {
+      "source": "f9fb59cb5ceb22a2800364521f4b0e520684cc89ca8ece0027f3cdfc5c06c0f5",
+      "repository": "f9fb59cb5ceb22a2800364521f4b0e520684cc89ca8ece0027f3cdfc5c06c0f5"
+    },
+    "tests/test_profile_runtime_isolation.py": {
+      "source": "82cbdca135f1146e71fe9b81df09856b0dd3f42ce2f7f42dc9cd410f1ec7862c",
+      "repository": "82cbdca135f1146e71fe9b81df09856b0dd3f42ce2f7f42dc9cd410f1ec7862c"
+    },
+    "tests/test_ui_stabilization.py": {
+      "source": "88443a6ed9ddef63e4f966ff59849a2592f794b924bb58a410ad71c9b4f72caa",
+      "repository": "88443a6ed9ddef63e4f966ff59849a2592f794b924bb58a410ad71c9b4f72caa"
+    },
+    "tests/test_whisper_memory_policy.py": {
+      "source": "9d4d460099571be2506b2bb24b917ad24d9cfa521f65bc198fb017c023c71ee0",
+      "repository": "9d4d460099571be2506b2bb24b917ad24d9cfa521f65bc198fb017c023c71ee0"
+    },
+    "tests/test_thread_diagnostics.py": {
+      "source": "76c585ccc3a1198bb43a4395e0e143075694dbee23cf7ba732f216532adc1b16",
+      "repository": "76c585ccc3a1198bb43a4395e0e143075694dbee23cf7ba732f216532adc1b16"
+    },
+    "thread_diagnostics.py": {
+      "source": "93e6a810488c47189ee03d8d402921b0c795454b4477b6034a11d338a2519ce7",
+      "repository": "93e6a810488c47189ee03d8d402921b0c795454b4477b6034a11d338a2519ce7"
     }
   },
   "protected": {

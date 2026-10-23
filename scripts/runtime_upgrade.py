@@ -87,7 +87,7 @@ class Upgrade:
             if (p/'journal.json').is_file() and json.loads((p/'journal.json').read_text())['status'] not in DONE:result.append(p)
         return result
     def prepare(self):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             if self.pending():raise Error('Resolve the existing upgrade journal before preparing another')
             old,_=runner.validate(self.pointer);commit=self.manager.head()
             if commit==old['commit']:raise Error('Accepted runtime already uses this commit')
@@ -132,7 +132,7 @@ class Upgrade:
         if definition(snapshot['xml'])!=value['taskDefinition']:raise Error('Task settings/triggers/principal changed; reconcile manually')
         return snapshot
     def apply(self,identifier):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             path,value=self.load(identifier)
             if value['status']!='PREPARED':raise Error('Interrupted upgrade requires explicit recovery')
             self.accepted(value['commit']);snapshot=self.checked_task(value)
@@ -148,7 +148,7 @@ class Upgrade:
             self.task.enable(value['wasEnabled'])
             return json.loads((path/'journal.json').read_text())
     def verify(self,identifier):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             path,value=self.load(identifier);snapshot=self.checked_task(value)
             if value['status']!='VERIFY_PENDING':raise Error('Upgrade is not waiting for scheduled smoke verification')
             if runner.sha(self.pointer)!=value['newSha256'] or snapshot['action']!=value['newAction'] or snapshot['enabled']!=value['wasEnabled']:raise Error('New runtime/task identity drift')
@@ -156,7 +156,7 @@ class Upgrade:
             if result['running'] or result['result']!=0 or result.get('lastRun',0)<value['applied']-1 or not result['lastRun']<=receipt.get('started',0)<=result['lastRun']+10 or receipt.get('started',0)<value['applied'] or receipt.get('controllerCommit')!=value['commit'] or receipt.get('returnCode')!=0 or receipt.get('status') not in {'IDLE','COMPLETE','CI_PENDING','WAITING_RETRY','PAUSED'}:raise Error('Fresh successful scheduled receipt required; upgrade remains unverified')
             return self.save(path,'COMPLETE',scheduledReceipt=receipt,verified=time.time())
     def rollback(self,identifier):
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             path,value=self.load(identifier);snapshot=self.checked_task(value)
             if value['status'] in DONE:raise Error('Terminal upgrade cannot be blindly replayed')
             if snapshot['running']:raise Error('Do not interrupt an active source runner')
@@ -170,7 +170,7 @@ class Upgrade:
             return self.save(path,'ROLLED_BACK',rolledBack=time.time())
     def abandon(self,identifier):
         """Cancel only an untouched prepared plan; never repair bad evidence."""
-        with auto.exclusive(self.manager.lock):
+        with self.manager.publication_lock():
             path,value=self.load(identifier,check_backup=False);snapshot=self.checked_task(value)
             if value['status']!='PREPARED' or snapshot['running'] or snapshot['enabled']!=value['wasEnabled'] or snapshot['action']!=value['oldAction'] or runner.sha(self.pointer)!=value['oldSha256']:raise Error('Only an unchanged, unapplied prepared upgrade can be abandoned')
             return self.save(path,'ABANDONED',reason='Prepared upgrade explicitly cancelled; no pointer/task mutation; all backup evidence retained')

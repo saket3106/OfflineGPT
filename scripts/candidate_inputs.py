@@ -28,28 +28,56 @@ def ordinary(path):
         if part.exists() and (part.is_symlink() or getattr(part.lstat(),'st_file_attributes',0)&0x400):raise CandidateError('Linked/reparse input path')
     return path.resolve()
 def git(repo,executable,*args):
-    result=subprocess.run([str(executable),'-C',str(repo),*args],capture_output=True,timeout=30)
+    result=subprocess.run([str(executable),'--no-replace-objects','-C',str(repo),*args],capture_output=True,timeout=30)
     if result.returncode:raise CandidateError('Bounded Git input read failed: '+args[0])
     return result.stdout
+def batch_blobs(repo,executable,oids):
+    if not oids:return []
+    if any(not re.fullmatch('[0-9a-f]{40}',oid) for oid in oids):raise CandidateError('Invalid immutable blob identity')
+    proc=subprocess.run([str(executable),'--no-replace-objects','-C',str(repo),'cat-file','--batch'],input=('\n'.join(oids)+'\n').encode(),capture_output=True,timeout=30)
+    if proc.returncode:raise CandidateError('Bounded Git batch read failed')
+    raw=proc.stdout;offset=0;result=[]
+    for oid in oids:
+        end=raw.find(b'\n',offset)
+        if end<0:raise CandidateError('Truncated Git batch header')
+        fields=raw[offset:end].split()
+        if len(fields)!=3 or fields[:2]!=[oid.encode(),b'blob'] or not fields[2].isdigit():raise CandidateError('Invalid Git batch blob header')
+        size=int(fields[2]);offset=end+1;data=raw[offset:offset+size];offset+=size
+        if len(data)!=size or raw[offset:offset+1]!=b'\n':raise CandidateError('Truncated Git batch content')
+        if hashlib.sha1(b'blob '+str(size).encode()+b'\0'+data).hexdigest()!=oid:raise CandidateError('Git batch blob identity mismatch')
+        result.append(data);offset+=1
+    if offset!=len(raw):raise CandidateError('Unexpected Git batch trailing content')
+    return result
+
 def inputs(repo,commit,executable):
     repo=ordinary(repo)
     if not re.fullmatch('[0-9a-f]{40}',commit):raise CandidateError('Exact source commit required')
     policy=json.loads(git(repo,executable,'show',commit+':scripts/source_sync_policy.json'))
     names=sorted(p for p in policy['managed'] if (p.endswith('.py') and '/' not in p) or p.startswith('frontend-source/') or p in {'Offline GPT.spec','assistant_system_prompt.md'})
-    tracked=git(repo,executable,'ls-tree','-r','--name-only',commit).decode().splitlines()
-    declarations=[p for p in tracked if '/' not in p and re.fullmatch(r'(?:requirements|constraints)(?:[-_.][A-Za-z0-9_-]+)?\.txt',p)]
+    tree={}
+    for entry in git(repo,executable,'ls-tree','-r','-z',commit).split(b'\0'):
+        if not entry:continue
+        try:
+            metadata,raw_name=entry.split(b'\t',1)
+            name=raw_name.decode('utf-8');fields=metadata.decode('ascii').split()
+        except (ValueError,UnicodeError) as exc:raise CandidateError('Malformed immutable Git tree') from exc
+        if name in tree or len(fields)!=3 or not re.fullmatch('[0-9a-f]{40}',fields[2]):raise CandidateError('Malformed or duplicate immutable Git tree entry')
+        tree[name]=fields
+    tracked=sorted(tree)
+    declarations=[p for p in tracked if '/' not in p and re.fullmatch(r'(?:requirements|constraints)(?:[-_.][A-Za-z0-9_-]+)?\.(?:txt|lock)',p)]
     names=sorted(set(names+declarations))
     if len({name.casefold() for name in names})!=len(names):raise CandidateError('Colliding Windows source input paths')
     if not {'app.py','Offline GPT.spec','assistant_system_prompt.md','frontend-source/package.json','frontend-source/pnpm-lock.yaml','frontend-source/vite.config.js'}<=set(names):raise CandidateError('Required build inputs omitted')
-    files={}
+    files={};oids=[]
     for name in names:
         if relative(name)!=name:raise CandidateError('Non-canonical source path')
-        metadata=git(repo,executable,'ls-tree',commit,'--',name).decode().split()
+        metadata=tree.get(name,[])
         if len(metadata)<3 or metadata[0] not in {'100644','100755'} or metadata[1]!='blob':raise CandidateError('Source input is missing, linked or not a blob: '+name)
-        data=git(repo,executable,'show',commit+':'+name)
+        oids.append(metadata[2])
+    for name,data in zip(names,batch_blobs(repo,executable,oids)):
         # Text normalization matches the publication manifest. Asset bytes are
         # never normalized, even if they happen to contain a CRLF sequence.
-        text_suffixes={'.py','.spec','.js','.jsx','.ts','.tsx','.css','.html','.json','.md','.svg','.yaml','.yml','.toml','.txt'}
+        text_suffixes={'.py','.spec','.js','.jsx','.ts','.tsx','.css','.html','.json','.md','.svg','.yaml','.yml','.toml','.txt','.lock'}
         normalized=data.replace(b'\r\n',b'\n') if Path(name).suffix.lower() in text_suffixes else data
         files[name]=hashlib.sha256(normalized).hexdigest()
     return {'sourceCommit':commit,'files':files,'applicationInputSha256':digest(files)}

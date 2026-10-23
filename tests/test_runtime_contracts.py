@@ -249,6 +249,14 @@ class ExistingAdapterTests(unittest.TestCase):
         sentinel=object();self.manager.runtime.complete.return_value=sentinel
         self.assertIs(ExistingTextAdapter(self.manager,'bundled').complete(self.messages,**self.kwargs),sentinel)
 
+    def test_schema_is_forwarded_only_to_bundled_runtime(self):
+        schema={'type':'object'}
+        ExistingTextAdapter(self.manager,'bundled').complete(self.messages,**self.kwargs,response_schema=schema)
+        self.assertIs(self.manager.runtime.complete.call_args.kwargs['response_schema'],schema)
+        with self.assertRaises(CompatibilityError):
+            ExistingTextAdapter(self.manager,'lmstudio').complete(self.messages,**self.kwargs,response_schema=schema)
+        self.manager.lm_runtime.complete.assert_not_called()
+
     def test_runtime_errors_are_not_retried_or_hidden(self):
         self.manager.runtime.complete.side_effect=RuntimeError('Cancelled')
         with self.assertRaisesRegex(RuntimeError,'Cancelled'):

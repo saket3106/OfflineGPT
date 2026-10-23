@@ -292,56 +292,244 @@ class ToolRegistry:
             for tool in self.tools.values()
         ]
 
+    def normalize_arguments(self, name: str, arguments: Any) -> dict[str, Any]:
+        """Normalize and coerce tool arguments from model output into valid Python kwargs."""
+        if isinstance(arguments, str):
+            text_arg = arguments.strip()
+            if text_arg.startswith("{") and text_arg.endswith("}"):
+                try:
+                    arguments = json.loads(text_arg)
+                except Exception:
+                    try:
+                        import ast
+                        arguments = ast.literal_eval(text_arg)
+                    except Exception:
+                        arguments = {}
+            elif name == "calculator" and text_arg:
+                arguments = {"expression": text_arg}
+            elif name == "file_search" and text_arg:
+                arguments = {"pattern": text_arg}
+            elif name == "python_runner" and text_arg:
+                arguments = {"code": text_arg}
+            else:
+                arguments = {}
+
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        normalized = dict(arguments)
+
+        # Alias common parameter variations
+        if name == "calculator":
+            if "expression" not in normalized:
+                for alias in ("expr", "math", "calculation", "input", "query"):
+                    if alias in normalized:
+                        normalized["expression"] = str(normalized.pop(alias))
+                        break
+        elif name == "file_search":
+            if "pattern" not in normalized:
+                for alias in ("query", "search", "glob", "file"):
+                    if alias in normalized:
+                        normalized["pattern"] = str(normalized.pop(alias))
+                        break
+        elif name == "python_runner":
+            if "code" not in normalized:
+                for alias in ("script", "source", "python"):
+                    if alias in normalized:
+                        normalized["code"] = str(normalized.pop(alias))
+                        break
+
+        tool = self.get_tool(name)
+        if tool:
+            schema = tool.parameters_schema or {}
+            properties = schema.get("properties", {})
+            for key, spec in properties.items():
+                if key in normalized:
+                    val = normalized[key]
+                    kind = spec.get("type")
+                    if kind == "integer":
+                        if isinstance(val, str) and val.strip().lstrip("-").isdigit():
+                            try:
+                                normalized[key] = int(val.strip())
+                            except ValueError:
+                                pass
+                        elif isinstance(val, float):
+                            normalized[key] = int(val)
+                    elif kind == "number":
+                        if isinstance(val, str):
+                            try:
+                                normalized[key] = float(val.strip())
+                            except ValueError:
+                                pass
+                    elif kind == "boolean":
+                        if isinstance(val, str):
+                            normalized[key] = val.strip().lower() in ("true", "1", "yes")
+                    elif kind == "string":
+                        if not isinstance(val, str):
+                            normalized[key] = str(val)
+
+            # Strip non-schema properties if strict properties are defined
+            if properties:
+                allowed_keys = set(properties.keys())
+                normalized = {k: v for k, v in normalized.items() if k in allowed_keys}
+            else:
+                normalized = {}
+
+        return normalized
+
+    def parse_tool_calls(self, text: str) -> list[dict[str, Any]]:
+        """Parse one or multiple structured tool calls from model output."""
+        if not text or not isinstance(text, str):
+            return []
+        calls = []
+
+        # 1. Parse <tool_call> tags (single or multiple)
+        matches = re.findall(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.DOTALL | re.IGNORECASE)
+        for raw in matches:
+            raw = raw.strip()
+            try:
+                data = json.loads(raw)
+                name = data.get("name") or data.get("tool")
+                args = data.get("arguments", {})
+                if name and isinstance(name, str) and self.get_tool(name.strip()):
+                    calls.append({
+                        "id": f"call_{len(calls) + 1}",
+                        "name": name.strip(),
+                        "arguments": self.normalize_arguments(name.strip(), args),
+                    })
+            except Exception:
+                # Handle possible key=value or call:tool format
+                call_match = re.match(r"(?:call:)?(\w+)\s*(\{.*\})", raw, re.DOTALL)
+                if call_match:
+                    t_name, t_args_str = call_match.group(1), call_match.group(2)
+                    if self.get_tool(t_name):
+                        try:
+                            t_args = json.loads(t_args_str)
+                            calls.append({
+                                "id": f"call_{len(calls) + 1}",
+                                "name": t_name,
+                                "arguments": self.normalize_arguments(t_name, t_args),
+                            })
+                        except Exception:
+                            pass
+
+        if calls:
+            return calls
+
+        # 2. Parse Qwen/Harmony <|call|>tag{...}<|return|> format
+        harmony_matches = re.findall(r"<\|call\|>\s*(\w+)\s*(\{.*?\})\s*<\|return\|>", text, re.DOTALL)
+        for t_name, t_args_str in harmony_matches:
+            if self.get_tool(t_name):
+                try:
+                    t_args = json.loads(t_args_str)
+                    calls.append({
+                        "id": f"call_{len(calls) + 1}",
+                        "name": t_name,
+                        "arguments": self.normalize_arguments(t_name, t_args),
+                    })
+                except Exception:
+                    pass
+
+        if calls:
+            return calls
+
+        # 3. Parse markdown code blocks ```json { ... } ```
+        code_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        for block in code_blocks:
+            try:
+                data = json.loads(block)
+                name = data.get("name") or data.get("tool")
+                args = data.get("arguments", {})
+                if name and isinstance(name, str) and self.get_tool(name.strip()):
+                    calls.append({
+                        "id": f"call_{len(calls) + 1}",
+                        "name": name.strip(),
+                        "arguments": self.normalize_arguments(name.strip(), args),
+                    })
+            except Exception:
+                pass
+
+        if calls:
+            return calls
+
+        # 4. Check single JSON object if whole text or block is JSON
+        trimmed = text.strip()
+        if trimmed.startswith("{") and trimmed.endswith("}"):
+            try:
+                data = json.loads(trimmed)
+                name = data.get("name") or data.get("tool")
+                args = data.get("arguments", {})
+                if name and isinstance(name, str) and self.get_tool(name.strip()):
+                    calls.append({
+                        "id": "call_1",
+                        "name": name.strip(),
+                        "arguments": self.normalize_arguments(name.strip(), args),
+                    })
+            except Exception:
+                pass
+
+        return calls
+
     def parse_tool_call(self, text: str) -> tuple[str, dict[str, Any]] | None:
         """Parse structured <tool_call> tags or json tool calls from model output."""
-        # Check <tool_call> tag
-        match = re.search(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(1))
-                name = data.get("name")
-                args = data.get("arguments", {})
-                if name and isinstance(name, str):
-                    return name, args
-            except json.JSONDecodeError:
-                pass
-
-        # Check JSON block formatted as {"action": "tool_call", "name": ..., "arguments": ...}
-        json_match = re.search(r"```(?:json)?\s*(\{\s*\"tool\".*?\})\s*```", text, re.DOTALL)
-        if json_match:
-            try:
-                data = json.loads(json_match.group(1))
-                name = data.get("tool") or data.get("name")
-                args = data.get("arguments", {})
-                if name:
-                    return name, args
-            except json.JSONDecodeError:
-                pass
-
+        calls = self.parse_tool_calls(text)
+        if calls:
+            return calls[0]["name"], calls[0]["arguments"]
         return None
 
     def validate_tool_call(self, name: str, arguments: dict[str, Any]) -> str | None:
         tool = self.get_tool(name)
         if not tool:
             return f"Error: Tool '{name}' is not recognized or permitted."
-        if not isinstance(arguments,dict):return 'Error: Tool arguments must be an object.'
-        schema=tool.parameters_schema;properties=schema.get('properties',{})
-        if any(k not in properties for k in arguments):return 'Error: Unknown tool argument.'
-        if any(k not in arguments for k in schema.get('required',[])):return 'Error: Missing required tool argument.'
-        for key,value in arguments.items():
-            spec=properties[key];kind=spec.get('type')
-            if kind=='string' and (not isinstance(value,str) or len(value)>spec.get('maxLength',24000)):return 'Error: Invalid string argument.'
-            if kind=='number':
-                import math
-                if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):return 'Error: Invalid numeric argument.'
-            if kind=='boolean' and not isinstance(value,bool):return 'Error: Invalid boolean argument.'
-            if kind=='integer' and (isinstance(value,bool) or not isinstance(value,int) or value<spec.get('minimum',-1000000) or value>spec.get('maximum',1000000)):return 'Error: Integer argument outside allowed range.'
+        schema = tool.parameters_schema or {}
+        properties = schema.get("properties", {})
+        # Reject invented keys and wrong value types before normalization can
+        # coerce or silently discard them. A model's batch has no authority to
+        # broaden the declared tool contract.
+        aliases = {'calculator': {'expr','math','calculation','input','query'},
+                   'file_search': {'query','search','glob','file'},
+                   'python_runner': {'script','source','python'}}.get(name,set())
+        if not isinstance(arguments,(dict,str)):
+            return 'Error: Tool arguments must be an object or supported shorthand.'
+        if isinstance(arguments,dict):
+            unknown=set(arguments)-set(properties)-aliases
+            if unknown:return 'Error: Unexpected tool argument: '+', '.join(sorted(unknown))
+            for key,value in arguments.items():
+                spec=properties.get(key)
+                if not spec:continue
+                kind=spec.get('type')
+                if kind=='string' and not isinstance(value,str):return f"Error: Argument '{key}' must be a string."
+                if kind=='boolean' and not isinstance(value,bool):return f"Error: Argument '{key}' must be a boolean."
+                if kind=='integer' and (isinstance(value,bool) or not isinstance(value,int)):
+                    return f"Error: Argument '{key}' must be an integer."
+        normalized = self.normalize_arguments(name, arguments)
+        required = schema.get("required", [])
+        for req in required:
+            if req not in normalized or normalized[req] is None or (isinstance(normalized[req], str) and not normalized[req].strip()):
+                return f"Error: Missing required tool argument '{req}'."
+        for key, value in normalized.items():
+            if key in properties:
+                spec = properties[key]
+                kind = spec.get("type")
+                if kind == "string" and len(str(value)) > spec.get("maxLength", 24000):
+                    return f"Error: Argument '{key}' exceeds maximum length."
+                if kind in ("integer", "number"):
+                    import math
+                    if isinstance(value,bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                        return f"Error: Argument '{key}' must be a finite number."
+                    if "minimum" in spec and value < spec["minimum"]:return f"Error: Argument '{key}' is below minimum."
+                    if "maximum" in spec and value > spec["maximum"]:return f"Error: Argument '{key}' exceeds maximum."
         return None
 
     def execute_tool_call(self, name: str, arguments: dict[str, Any]) -> str:
-        invalid=self.validate_tool_call(name,arguments)
-        if invalid:return invalid
+        tool = self.get_tool(name)
+        if not tool:
+            return f"Error: Tool '{name}' is not recognized or permitted."
+        invalid = self.validate_tool_call(name, arguments)
+        if invalid:
+            return invalid
+        normalized = self.normalize_arguments(name, arguments)
         try:
-            return self.get_tool(name).execute(**arguments)
+            return tool.execute(**normalized)
         except Exception as exc:
             return f"Error executing tool '{name}': {exc}"

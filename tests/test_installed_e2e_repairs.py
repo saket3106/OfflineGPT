@@ -93,7 +93,7 @@ class InstalledInferenceRegressions(unittest.TestCase):
             root=Path(directory);model=root/'fixture.gguf';model.write_bytes(b'fixture')
             runtime=_LocalLlamaServer(root);process=Mock();process.poll.return_value=None
             response=Mock();response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False);response.status=200
-            with patch.object(runtime,'stop'),patch.object(runtime,'_server_binary',return_value=root/'llama-server.exe'),patch.object(runtime,'_check_runtime_files'),patch('integrated_runtime.subprocess.Popen',return_value=process) as launch,patch('integrated_runtime.urllib.request.urlopen',return_value=response),patch('integrated_runtime.physical_memory_status',return_value={'available':4*1024**3}):
+            with patch.object(runtime,'stop'),patch.object(runtime,'_server_binary',return_value=root/'llama-server.exe'),patch.object(runtime,'_check_runtime_files'),patch('integrated_runtime.subprocess.Popen',return_value=process) as launch,patch.object(runtime._local_opener,'open',return_value=response),patch('integrated_runtime.physical_memory_status',return_value={'available':4*1024**3}):
                 try:runtime.start(model,2048,'auto',lambda _:None,memory_profile={'batch':64,'ubatch':32,'threads':4,'load_mode':'none'})
                 finally:
                     if runtime.log_handle:runtime.log_handle.close()

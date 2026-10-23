@@ -27,7 +27,7 @@ LOCK = '.source-sync.lock'
 MAX_FILE = 10 * 1024 * 1024
 DENIED_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'logs', 'reports', 'diagnostics', 'backups', 'generated', 'thumbnails', 'models', 'profiles', 'build', 'dist', 'ui', '__pycache__', 'attachments'}
 TEXT = {'.py', '.spec', '.md', '.txt', '.json', '.jsonl', '.jsx', '.js', '.css', '.html', '.yaml', '.yml', '.sha256'}
-DEPENDENCIES = {'requirements.txt', 'requirements-voice.txt', 'requirements-build.txt', 'constraints-windows.txt', 'frontend-source/package.json', 'frontend-source/pnpm-lock.yaml', 'Offline GPT.spec'}
+DEPENDENCIES = {'requirements-agent.txt', 'requirements.txt', 'requirements-voice.txt', 'requirements-build.txt', 'constraints-windows.txt', 'frontend-source/package.json', 'frontend-source/pnpm-lock.yaml', 'Offline GPT.spec'}
 
 class SyncError(RuntimeError):
     pass
@@ -119,7 +119,7 @@ def scan_blob(rel, data):
         problems.append({'file': rel, 'kind': 'private_or_binary_asset'})
     if len(data) > MAX_FILE:
         problems.append({'file': rel, 'kind': 'source_size_limit'})
-    if suffix in TEXT or name.startswith('.'):
+    if suffix in TEXT or name.startswith('.') or rel == 'requirements-agent-windows-py312.lock':
         try:
             text = data.decode('utf-8')
         except UnicodeError:
@@ -127,6 +127,15 @@ def scan_blob(rel, data):
         for kind, pattern in module.PATTERNS.items():
             for match in pattern.finditer(text):
                 problems.append({'file': rel, 'kind': kind, 'line': text.count('\n', 0, match.start()) + 1})
+        if rel == 'requirements-agent-windows-py312.lock':
+            pins=set()
+            for line_number,line in enumerate(text.splitlines(),1):
+                line=line.strip()
+                if not line or line.startswith('#'):continue
+                match=re.fullmatch(r'([A-Za-z0-9_.-]+)==([A-Za-z0-9_.+!-]+) --hash=sha256:([a-f0-9]{64})',line)
+                key=re.sub(r'[-_.]+','-',match[1]).lower() if match else None
+                if not match or key in pins:problems.append({'file':rel,'kind':'invalid_agent_lock','line':line_number})
+                if key:pins.add(key)
         if suffix in {'.py', '.spec'}:
             try:ast.parse(text, filename=rel)
             except SyntaxError as error:problems.append({'file': rel, 'kind': 'python_syntax', 'line': error.lineno})
@@ -189,9 +198,9 @@ def dependencies(repo, proposed):
         if data is None:continue
         if name.startswith('requirements'):
             declared.update(re.findall(r'^([A-Za-z0-9_.-]+)', data.decode(), re.M))
-    local={PurePosixPath(p).stem for p in proposed if PurePosixPath(p).parent==PurePosixPath('.') and p.endswith('.py')}
-    local.update(p.stem for p in repo.glob('*.py'))
-    aliases={'PIL':'Pillow','docx':'python-docx','pptx':'python-pptx','fitz':'PyMuPDF','pymupdf':'PyMuPDF','kokoro_onnx':'kokoro-onnx','espeakng_loader':'espeakng-loader','imageio_ffmpeg':'imageio-ffmpeg'}
+    local={PurePosixPath(p).stem for p,data in proposed.items() if data is not None and PurePosixPath(p).parent==PurePosixPath('.') and p.endswith('.py')}
+    local.update(p.stem for p in repo.glob('*.py') if proposed.get(p.name,b'') is not None)
+    aliases={'PIL':'Pillow','docx':'python-docx','pptx':'python-pptx','fitz':'PyMuPDF','pymupdf':'PyMuPDF','kokoro_onnx':'kokoro-onnx','espeakng_loader':'espeakng-loader','imageio_ffmpeg':'imageio-ffmpeg','win32api':'pywin32','win32job':'pywin32','pywintypes':'pywin32'}
     test_local={p.stem for p in (repo/'tests').glob('*.py') if proposed.get('tests/'+p.name, b'') is not None}
     test_local.update(PurePosixPath(p).stem for p,data in proposed.items() if data is not None and PurePosixPath(p).parent==PurePosixPath('tests') and p.endswith('.py'))
     imports=set()
@@ -267,7 +276,7 @@ def manifest_data(repo, executable):
     return ''.join(rows).encode()
 
 def manifest_hash(rel, data):
-    if PurePosixPath(rel).suffix.lower() in TEXT|{'.svg'} or PurePosixPath(rel).name.startswith('.'):
+    if PurePosixPath(rel).suffix.lower() in TEXT|{'.svg'} or PurePosixPath(rel).name.startswith('.') or rel == 'requirements-agent-windows-py312.lock':
         try:data.decode('utf-8');data=data.replace(b'\r\n',b'\n')
         except UnicodeError:pass
     return digest(data)
@@ -448,3 +457,39 @@ if __name__=='__main__':
     try:raise SystemExit(main())
     except (SyncError, OSError, ValueError, KeyError) as error:
         print('Synchronization stopped: '+str(error),file=sys.stderr);raise SystemExit(2)
+
+
+def canonical_contract_schema(contract):
+    keys={'version','epoch','root','repositoryConfigSha256','ancestorCommit','branch','remoteUrl','policySha256','productionRoot'}
+    if not isinstance(contract,dict) or set(contract)!=keys or type(contract['version']) is not int or contract['version']!=1 or type(contract['epoch']) is not int or contract['epoch']<1:
+        raise SyncError('Unsupported canonical path contract')
+    return dict(contract)
+
+def validate_canonical_contract(repo, source, contract, executable):
+    """Explicit same-repository layout; legacy context() stays disjoint-only.
+
+    This validates an already adopted layout, never grants path adoption. The
+    caller also requires the exact contract/epoch in external control state.
+    """
+    canonical_contract_schema(contract)
+    for path in (repo,source):
+        if not path.is_absolute():raise SyncError('Canonical paths must be absolute')
+        for part in (path,*path.parents):
+            if part.exists() and linked(part):raise SyncError('Canonical link/reparse ancestor')
+    if repo.resolve()!=source.resolve() or str(repo.resolve())!=contract['root']:
+        raise SyncError('Canonical contract requires the exact single repository root')
+    if not isinstance(contract['productionRoot'],str):raise SyncError('Explicit canonical production boundary required')
+    production=Path(contract['productionRoot'])
+    if not production.is_absolute() or str(production.resolve())!=contract['productionRoot']:raise SyncError('Canonical production boundary must be an exact absolute path')
+    for part in (production,*production.parents):
+        if part.exists() and linked(part):raise SyncError('Canonical production boundary is linked')
+    if repo.resolve().is_relative_to(production) or production.is_relative_to(repo.resolve()):raise SyncError('Canonical repository overlaps production boundary')
+    git_fingerprint(repo,executable)
+    if digest((repo/'.git/config').read_bytes())!=contract['repositoryConfigSha256'] or file_hash(repo,POLICY)!=contract['policySha256']:
+        raise SyncError('Canonical repository/policy identity changed')
+    if not re.fullmatch('[0-9a-f]{40,64}',str(contract['ancestorCommit'])):raise SyncError('Invalid canonical adoption commit')
+    if subprocess.run([str(executable),'-C',str(repo),'merge-base','--is-ancestor',contract['ancestorCommit'],'HEAD'],capture_output=True,timeout=30).returncode:
+        raise SyncError('Canonical adoption history diverged')
+    if git(repo,executable,'branch','--show-current').stdout.decode().strip()!=contract['branch'] or git(repo,executable,'remote','get-url','origin').stdout.decode().strip()!=contract['remoteUrl']:
+        raise SyncError('Canonical branch/remote identity changed')
+    return dict(contract)

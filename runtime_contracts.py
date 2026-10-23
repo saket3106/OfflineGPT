@@ -287,7 +287,7 @@ class TextRuntimeAdapter(Protocol):
     runtime_id: str
 
     def complete(self, messages, *, max_tokens, temperature, cancel_event, on_token,
-                 progress, connection_callback, top_p, allowed_tools, reasoning_effort): ...
+                 progress, connection_callback, top_p, allowed_tools, reasoning_effort, response_schema=None): ...
 
 
 class ExistingTextAdapter:
@@ -303,13 +303,15 @@ class ExistingTextAdapter:
         self.runtime_id = backend
 
     def complete(self, messages, *, max_tokens, temperature, cancel_event, on_token,
-                 progress, connection_callback, top_p, allowed_tools, reasoning_effort):
+                 progress, connection_callback, top_p, allowed_tools, reasoning_effort, response_schema=None):
         kwargs = dict(connection_callback=connection_callback, top_p=top_p, allowed_tools=allowed_tools,
                       reasoning_effort=(reasoning_effort or "low") if self.runtime_id == "lmstudio" else reasoning_effort)
         if self.runtime_id == "lmstudio":
+            if response_schema is not None:raise CompatibilityError('Structured Agent requests require the bundled runtime.')
             return self.manager.lm_runtime.complete(messages, int(max_tokens), float(temperature), cancel_event, on_token, progress, **kwargs)
         runtime = self.manager.runtime
         if not runtime or not runtime.ready:
             raise RuntimeError("Offline GPT's bundled GPT-OSS engine stopped before the response began.")
+        if response_schema is not None:kwargs['response_schema']=response_schema
         return runtime.complete(messages, runtime.context, int(max_tokens), float(temperature), cancel_event,
                                 on_token, progress, self.manager.chat_memory_profile, **kwargs)

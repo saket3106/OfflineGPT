@@ -93,7 +93,7 @@ class Builder:
         if proof is not None and (not isinstance(proof,dict) or set(proof)!={'applicationInputSha256','environmentSha256','pointerSha256'} or not all(re.fullmatch('[a-f0-9]{64}',v) for v in proof.values())):raise Error('Invalid reviewed candidate equivalence binding')
         self.manager=auto.Manager(self.cfg['syncConfig'],local_fixture=fixture);self.fixture=fixture
         self.root=auto.sync.validate_external(inputs.ordinary(Path(self.cfg['privateRoot'])),self.manager.repo,self.manager.source)
-        production=inputs.ordinary(self.manager.source.parent/'Offline GPT')
+        production=inputs.ordinary(Path(self.manager.cfg['layoutContract']['productionRoot'])) if self.manager.canonical_mode else inputs.ordinary(self.manager.source.parent/'Offline GPT')
         if self.root.is_relative_to(production) or production.is_relative_to(self.root):raise Error('Private candidate state must never overlap the production application')
         if not self.config.is_relative_to(self.root):raise Error('Build configuration must remain private')
         if not re.fullmatch('[0-9a-f]{40}',self.cfg['controllerCommit']):raise Error('Exact accepted build controller revision required')

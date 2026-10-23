@@ -29,7 +29,7 @@ jobs:
       - name: Explicit public-source identity and transaction policy (no network)
         run: python -m unittest discover -s tests -p 'test_public_source*.py' -v
       - name: Frozen runner integrity and execution boundaries
-        run: python -m unittest discover -s tests -p test_sync_runner.py -v
+        run: python -m unittest discover -s tests -p 'test_sync_runner*.py' -v
       - name: Journaled accepted-runtime upgrades (disposable task adapter)
         run: python -m unittest discover -s tests -p test_runtime_upgrade.py -v
       - name: Candidate input integrity and isolated smoke boundaries (no EXE launch)
@@ -56,6 +56,14 @@ jobs:
         run: |
           if (!(Test-Path -LiteralPath tests/test_runtime_contracts.py -PathType Leaf)) { throw 'Required runtime contract suite is missing' }
           python -m unittest discover -s tests -p test_runtime_contracts.py -v
+      - name: Canonical layout, Windows recovery and explicit production boundaries (disposable Git)
+        run: python -m unittest discover -s tests -p 'test_canonical*.py' -v
+      - name: Immutable batch protocol and dependency lock coverage
+        run: python -m unittest discover -s tests -p test_candidate_batch_inputs.py -v
+      - name: Process-local fixture integrity and cross-repository isolation
+        run: python -m unittest discover -s tests -p test_controller_fixture_cache.py -v
+      - name: GIL-held diagnostic sampling and owned shutdown (no application launch)
+        run: python -m unittest discover -s tests -p test_thread_diagnostics.py -v
       - name: Actual Git index, privacy and completeness
         run: python scripts/sync_source.py precommit --report-dir "$env:RUNNER_TEMP/offlinegpt-publication"
       - name: Source-only inventory

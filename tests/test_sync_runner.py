@@ -24,6 +24,9 @@ class FrozenRunnerTests(unittest.TestCase):
         self.path=self.private/'runtime.json';self.save()
     def save(self):self.path.write_text(json.dumps(self.manifest))
     def test_complete_frozen_runtime_validates(self):self.assertEqual(runner.validate(self.path)[0]['commit'],'a'*40)
+    def test_boolean_runtime_version_cannot_impersonate_version_one(self):
+        self.manifest['version']=True;self.save()
+        with self.assertRaises(runner.RunnerError):runner.validate(self.path)
     def test_working_tree_controller_is_never_used(self):
         (self.repo/'auto_sync.py').write_text('UNAPPROVED=1')
         fake=subprocess.CompletedProcess([],0,b'{"status":"IDLE"}',b'')

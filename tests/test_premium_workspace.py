@@ -188,6 +188,45 @@ class PremiumWorkspaceRegression(unittest.TestCase):
 
 
 class ModelIdentityPresentationTests(unittest.TestCase):
+    def test_composer_keyboard_intent_handles_composition_focus_and_busy_boundary(self):
+        import re
+        import shutil
+        import subprocess
+        node=shutil.which('node')
+        if not node:self.skipTest('Node required to run the real frontend helper')
+        source=(Path(__file__).resolve().parents[1]/'frontend-source/src/main.jsx').read_text(encoding='utf-8')
+        helper=re.search(r'function composerKeyAction\(event\) \{.*?\n\}',source,re.S)
+        self.assertIsNotNone(helper)
+        cases=[({'key':'Enter'},'send'),({'key':'Enter','shiftKey':True},'native'),
+               ({'key':'Tab'},'native'),({'key':'Tab','shiftKey':True},'native'),
+               ({'key':'Enter','isComposing':True},'native'),
+               ({'key':'Enter','nativeEvent':{'isComposing':True}},'native'),
+               ({'key':'Enter','keyCode':229},'native'),
+               ({'key':']','ctrlKey':True},'indent'),({'key':']','metaKey':True},'indent'),
+               ({'key':']','ctrlKey':True,'altKey':True},'native')]
+        script=helper.group()+'\nconst fs=require("fs");console.log(JSON.stringify(JSON.parse(fs.readFileSync(0,"utf8")).map(composerKeyAction)));'
+        result=subprocess.run([node,'-e',script],input=json.dumps([c[0] for c in cases]),text=True,capture_output=True,check=True,timeout=15)
+        self.assertEqual(json.loads(result.stdout),[c[1] for c in cases])
+        self.assertIn('if (!busy) send()',source)
+
+    def test_shared_palette_has_independent_text_contrast(self):
+        import re
+        css=(Path(__file__).resolve().parents[1]/'frontend-source/src/styles.css').read_text(encoding='utf-8')
+        def luminance(rgb):
+            values=[v/255 for v in rgb]
+            values=[v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in values]
+            return sum(a*b for a,b in zip(values,[.2126,.7152,.0722]))
+        def ratio(a,b):
+            a,b=sorted([luminance(a),luminance(b)])
+            return (b+.05)/(a+.05)
+        for selector in [':root',':root[data-theme="light"]']:
+            block=css.split(selector+' {',1)[1].split('}',1)[0]
+            tokens={name:tuple(map(int,values.split())) for name,values in re.findall(r'--([\w-]+):\s*(\d+\s+\d+\s+\d+)\s*;',block)}
+            for fg in ['text-primary','text-secondary','text-muted']:
+                for bg in ['bg-app','bg-surface']:
+                    self.assertGreaterEqual(ratio(tokens[fg],tokens[bg]),4.5,(selector,fg,bg))
+        self.assertNotRegex(css,r'@import\s+url\(["\']?https?://')
+
     def test_real_frontend_helpers_preserve_identity_and_missing_guidance(self):
         import re
         import shutil
@@ -210,6 +249,55 @@ class ModelIdentityPresentationTests(unittest.TestCase):
         self.assertEqual([v['name'] for v in values],['Qwen3 8B','GPT-OSS 20B','owner/external-model','Select a model','not-gpt-oss-20b-certified'])
         self.assertEqual(values[3]['health']['label'],'Select a model')
         self.assertNotEqual(values[3]['health']['tone'],'ready')
+
+
+class SettingsConfirmationRegression(unittest.TestCase):
+    def test_real_settings_helpers_require_acknowledgment_readback_and_cleanup(self):
+        import shutil
+        import subprocess
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node required for real settings helper execution')
+        source = (Path(__file__).resolve().parents[1] / 'frontend-source/src/main.jsx').read_text(encoding='utf-8')
+        helpers = source[source.index('const parse ='):source.index('const SETTINGS_SECTIONS =')]
+        script = r"""
+const assert = require('assert/strict');
+const activeTimers = new Set();
+global.window = {setTimeout(fn, ms) {const id = setTimeout(() => {activeTimers.delete(id); fn();}, Math.min(ms, 40)); activeTimers.add(id); return id;}, clearTimeout(id) {activeTimers.delete(id); clearTimeout(id);}};
+""" + helpers + r"""
+const results = [];
+function fixture(mode) {
+  const listeners = new Set(); let config = {theme:'dark'};
+  return {
+    listeners,
+    statusChanged:{connect(fn){listeners.add(fn);},disconnect(fn){listeners.delete(fn);}},
+    saveSettings(raw) {
+      if(mode === 'throw') throw Error('write failed');
+      if(mode === 'silent') return;
+      if(mode !== 'error') config = mode === 'normalized' ? {theme:'light',chat_context:4096} : JSON.parse(raw);
+      for(const fn of [...listeners]) fn(mode === 'error' ? 'Settings error: access denied' : 'Settings saved locally');
+    },
+    getSettings(done) {done(mode === 'invalid' ? '[]' : mode === 'malformed' ? '{' : mode === 'incomplete' ? '{}' : JSON.stringify(config));}
+  };
+}
+(async () => {
+  for(const mode of ['success','normalized','error','silent','throw','invalid','malformed','incomplete']) {
+    const bridge = fixture(mode); let value, failure;
+    try {value = await saveSettingsConfirmed(bridge,{theme:'light',chat_context:99999});} catch(error) {failure = error;}
+    if(['success','normalized'].includes(mode)) {
+      assert.equal(failure,undefined);assert.equal(value.theme,'light');
+      if(mode === 'normalized') assert.equal(value.chat_context,4096);
+    } else assert.ok(failure,mode+' must fail closed');
+    assert.equal(bridge.listeners.size,0,mode+' leaked signal listener');
+    assert.equal(activeTimers.size,0,mode+' leaked timeout'); results.push(mode);
+  }
+  await assert.rejects(saveSettingsConfirmed({},{}),/cannot confirm/);results.push('missing-desktop');
+  await assert.rejects(readLocalSettings({}),/unavailable/);results.push('missing-read-method');
+  console.log(JSON.stringify({passed:results}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        result = subprocess.run([node, '-e', script], capture_output=True, text=True, timeout=15, check=True)
+        self.assertEqual(len(json.loads(result.stdout)['passed']), 10)
 
 
 if __name__ == '__main__': unittest.main()
