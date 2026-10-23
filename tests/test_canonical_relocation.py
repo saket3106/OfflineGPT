@@ -9,7 +9,7 @@ spec=importlib.util.spec_from_file_location('relocation_under_test',ROOT/'script
 spec=importlib.util.spec_from_file_location('canonical_autosync',ROOT/'scripts/auto_sync.py');auto=importlib.util.module_from_spec(spec);spec.loader.exec_module(auto)
 
 class Adapter:
-    def __init__(self,root,repository=None,destination=None):self.repository=repository;self.destination=destination;self.root=root;self.disabled=True;self.accepted=True;self.trip=None;self.verified=[]
+    def __init__(self,root,repository=None,destination=None):self.repository=Path(repository).resolve() if repository is not None else None;self.destination=Path(destination).resolve() if destination is not None else None;self.root=Path(root).resolve();self.disabled=True;self.accepted=True;self.trip=None;self.verified=[]
     def existing_locks(self):
         return [auto.exclusive(self.root/'canonical-layout.lock'),auto.exclusive(self.root/'discovery.lock'),auto.exclusive(self.root/'builder.lock')]
     def verify(self,bindings,old,new,*,phase):
@@ -111,8 +111,8 @@ class CanonicalAdoptionIntegrationTests(unittest.TestCase):
     def test_relocated_config_and_epoch_load_through_actual_canonical_manager(self):
         import test_auto_sync as fixture_module
         fixture=fixture_module.AutoSyncTests('runTest');fixture.setUp();self.addCleanup(fixture.doCleanups)
-        old=fixture.repo;dest=old.with_name('OfflineGPT');cfg=dict(fixture.cfg)
-        contract={'version':1,'epoch':1,'root':str(dest),'repositoryConfigSha256':auto.sync.digest((old/'.git/config').read_bytes()),'ancestorCommit':fixture.g('rev-parse','HEAD').decode().strip(),'branch':cfg['branch'],'remoteUrl':cfg['remoteUrl'],'policySha256':auto.sync.file_hash(old,auto.sync.POLICY),'productionRoot':str(old.parent/'protected-production')}
+        old=fixture.repo.resolve();dest=old.with_name('OfflineGPT');cfg=dict(fixture.cfg)
+        contract={'version':1,'epoch':1,'root':str(dest),'repositoryConfigSha256':auto.sync.digest((old/'.git/config').read_bytes()),'ancestorCommit':fixture.g('rev-parse','HEAD').decode().strip(),'branch':cfg['branch'],'remoteUrl':cfg['remoteUrl'],'policySha256':auto.sync.file_hash(old,auto.sync.POLICY),'productionRoot':str((old.parent/'protected-production').resolve())}
         cfg.update(version=3,repo=str(dest),source=str(dest),layoutContract=contract)
         # Actual configuration key is repository, not the internal Manager.repo field.
         cfg.pop('repo',None);cfg['repository']=str(dest)

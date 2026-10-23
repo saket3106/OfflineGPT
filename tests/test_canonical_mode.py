@@ -11,7 +11,7 @@ class CanonicalModeTests(unittest.TestCase):
     def setUp(self):
         legacy.AutoSyncTests.setUp(self)
         self.cfg.update(version=3,source=str(self.repo.resolve()))
-        contract={'version':1,'epoch':1,'root':str(self.repo.resolve()),'repositoryConfigSha256':auto.sync.digest((self.repo/'.git/config').read_bytes()),'ancestorCommit':self.g('rev-parse','HEAD').decode().strip(),'branch':self.cfg['branch'],'remoteUrl':self.cfg['remoteUrl'],'policySha256':auto.sync.file_hash(self.repo,auto.sync.POLICY),'productionRoot':str(self.repo.parent/'protected-production')}
+        contract={'version':1,'epoch':1,'root':str(self.repo.resolve()),'repositoryConfigSha256':auto.sync.digest((self.repo/'.git/config').read_bytes()),'ancestorCommit':self.g('rev-parse','HEAD').decode().strip(),'branch':self.cfg['branch'],'remoteUrl':self.cfg['remoteUrl'],'policySha256':auto.sync.file_hash(self.repo,auto.sync.POLICY),'productionRoot':str((self.repo.parent/'protected-production').resolve())}
         self.cfg['layoutContract']=contract
         self.config.write_text(json.dumps(self.cfg),encoding='utf-8')
         self.control={'mode':'running','layoutEpoch':1,'layoutContractSha256':auto.sync.digest(auto.sync.canonical(contract))}
@@ -59,6 +59,12 @@ class CanonicalModeTests(unittest.TestCase):
         with self.assertRaises(auto.Error):auto.publication_policy({'version':3})
         bad=dict(self.cfg);bad['publicationPolicy']={'repositoryId':1,'visibility':'public','scope':'binary'}
         with self.assertRaises(auto.Error):auto.publication_policy(bad)
+    def test_noncanonical_production_alias_requires_explicit_resolution(self):
+        alias=self.repo.parent/'uncreated-alias'/'..'/'protected-production'
+        self.cfg['layoutContract']['productionRoot']=str(alias);self.write_cfg()
+        with self.assertRaisesRegex(auto.Error,'exact absolute'):auto.Manager(self.config,local_fixture=True)
+        self.cfg['layoutContract']['productionRoot']=str(alias.resolve());self.write_cfg()
+        self.assertTrue(auto.Manager(self.config,local_fixture=True).canonical_mode)
     def test_explicit_production_boundary_cannot_overlap_repository(self):
         self.cfg['layoutContract']['productionRoot']=str(self.repo);self.write_cfg()
         with self.assertRaisesRegex(auto.Error,'overlaps production'):auto.Manager(self.config,local_fixture=True)

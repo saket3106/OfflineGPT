@@ -51,6 +51,14 @@ class FixtureCacheTests(unittest.TestCase):
         cache.clear();(self.original.repo/'unexpected.txt').write_text(str(self.original.f.root),encoding='utf-8')
         with self.assertRaisesRegex(RuntimeError,'Unrecognized absolute'):cache.remember(self.original,fixtures.auto,source_fixtures)
         self.assertEqual(cache.statistics()['images'],0)
+    def test_raw_root_alias_references_are_rejected_in_addition_to_resolved_paths(self):
+        cache.clear();original=self.original.f.root;self.original.f.root=original/'uncreated-hop'/'..'
+        path=original/'unexpected-alias.txt';text=str(self.original.f.root)
+        variants=[text,text.lower()] if os.name=='nt' else [text]
+        for value in variants:
+            path.write_text(value,encoding='utf-8')
+            with self.subTest(value=value),self.assertRaisesRegex(RuntimeError,'Unrecognized absolute'):cache.remember(self.original,fixtures.auto,source_fixtures)
+        self.assertEqual(cache.statistics()['images'],0)
     def test_shared_file_links_are_rejected_and_cleanup_remains_owned(self):
         cache.clear();os.link(self.original.repo/'app.py',self.original.repo/'linked.py')
         with self.assertRaisesRegex(RuntimeError,'Non-ordinary'):cache.remember(self.original,fixtures.auto,source_fixtures)

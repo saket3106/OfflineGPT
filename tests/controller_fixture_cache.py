@@ -41,7 +41,9 @@ def remember(case,auto,fixtures):
         root=case.f.root.resolve()
         if root.parent!=Path(tempfile.gettempdir()).resolve() or not root.name.startswith('offlinegpt-sync-tests-'):raise RuntimeError('Only owned disposable controller fixtures may be reused')
         entries=[];dirs=[];total=0
-        tokens={str(root).encode(),root.as_posix().encode(),str(root).replace('\\','\\\\').encode()}
+        roots={case.f.root,root}
+        tokens={value for base_root in roots for value in (str(base_root).encode(),base_root.as_posix().encode(),str(base_root).replace('\\','\\\\').encode())}
+        if os.name=='nt':tokens={value.lower() for value in tokens}
         for base,folders,names in os.walk(root,topdown=True,followlinks=False):
             for name in sorted(folders+names):
                 path=Path(base)/name;info=path.lstat();rel=path.relative_to(root).as_posix()
@@ -50,7 +52,7 @@ def remember(case,auto,fixtures):
                 if not path.is_file() or info.st_nlink!=1:raise RuntimeError('Non-ordinary fixture input')
                 data=path.read_bytes();total+=len(data)
                 if total>2*1024**2 or len(entries)>=500:raise RuntimeError('Pristine fixture exceeds its bounded cache scope')
-                if rel not in {'repo/.git/config','private/config.json'} and any(token in data for token in tokens):raise RuntimeError('Unrecognized absolute fixture reference: '+rel)
+                if rel not in {'repo/.git/config','private/config.json'} and any(token in (data.lower() if os.name=='nt' else data) for token in tokens):raise RuntimeError('Unrecognized absolute fixture reference: '+rel)
                 entries.append((rel,data,stat.S_IMODE(info.st_mode)))
         entries=tuple(entries);dirs=tuple(dirs);cfg=json.dumps(case.cfg,sort_keys=True).encode('utf-8');before=case.f.git_before
         _images[key]=(entries,dirs,cfg,before,_seal(entries,dirs,cfg,before));_counts['captured']+=1
