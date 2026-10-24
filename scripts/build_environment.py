@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 import time
 spec=importlib.util.spec_from_file_location('build_input_foundation',Path(__file__).with_name('candidate_inputs.py'))
@@ -58,11 +59,13 @@ def inventory(roots,executables,source,repository):
         pending.clear()
     def children(directory):
         result=[]
-        for path in directory.iterdir():
-            if path.name in IGNORED or path.name.endswith(('.pyc','.pyo')):continue
-            is_link=path.is_symlink() or getattr(path.lstat(),'st_file_attributes',0)&0x400
-            kind=('link:'+str(path.resolve(strict=True))) if is_link else 'directory' if path.is_dir() else 'file'
-            result.append((path.name,kind))
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.name in IGNORED or entry.name.endswith(('.pyc','.pyo')):continue
+                path=Path(entry.path);info=entry.stat(follow_symlinks=False)
+                is_link=stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400
+                kind=('link:'+str(path.resolve(strict=True))) if is_link else 'directory' if stat.S_ISDIR(info.st_mode) else 'file'
+                result.append((entry.name,kind))
         return sorted(result)
     with ExitStack() as cleanup:
       cleanup.callback(pool.shutdown,wait=True,cancel_futures=True)
@@ -78,7 +81,8 @@ def inventory(roots,executables,source,repository):
             entries=[*(Path(directory)/n for n in dirs),*(Path(directory)/n for n in sorted(names) if not n.endswith(('.pyc','.pyo')))]
             for path in entries:
                 name=relative(path.relative_to(root).as_posix());key=role+'/'+name
-                linked=path.is_symlink() or getattr(path.lstat(),'st_file_attributes',0)&0x400
+                info=path.lstat()
+                linked=stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400
                 if linked:
                     target=path.resolve(strict=True)
                     if not target.is_relative_to(root):raise EnvironmentError('Dependency link escapes its approved cache')
@@ -86,10 +90,10 @@ def inventory(roots,executables,source,repository):
                     links[key]=target.relative_to(root).as_posix()
                     if path.name in dirs:dirs.remove(path.name)
                     continue
-                if path.is_dir():continue
-                if not path.is_file():raise EnvironmentError('Non-file dependency entry')
+                if stat.S_ISDIR(info.st_mode):continue
+                if not stat.S_ISREG(info.st_mode):raise EnvironmentError('Non-file dependency entry')
                 if path.suffix.lower() in {'.gguf','.safetensors'}:raise EnvironmentError('Model weights are outside build-environment scope')
-                count+=1;sizes+=path.stat().st_size
+                count+=1;sizes+=info.st_size
                 if count>MAX_FILES or sizes>MAX_BYTES:raise EnvironmentError('Environment inventory exceeded its bounded budget')
                 pending.append((key,pool.submit(stable_hash,path,deadline)))
                 if len(pending)>=64:drain()

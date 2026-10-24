@@ -66,8 +66,13 @@ class CanonicalModeTests(unittest.TestCase):
         self.cfg['layoutContract']['productionRoot']=str(alias.resolve());self.write_cfg()
         self.assertTrue(auto.Manager(self.config,local_fixture=True).canonical_mode)
     def test_explicit_production_boundary_cannot_overlap_repository(self):
-        self.cfg['layoutContract']['productionRoot']=str(self.repo);self.write_cfg()
+        self.cfg['layoutContract']['productionRoot']=str(self.repo.resolve());self.write_cfg()
         with self.assertRaisesRegex(auto.Error,'overlaps production'):auto.Manager(self.config,local_fixture=True)
+    def test_all_canonical_repository_overlap_relations_are_rejected(self):
+        for target in (self.repo.resolve(),self.repo.parent.resolve(),(self.repo/'nested-production').resolve()):
+            with self.subTest(target=target.name):
+                self.cfg['layoutContract']['productionRoot']=str(target);self.write_cfg()
+                with self.assertRaisesRegex(auto.Error,'overlaps production'):auto.Manager(self.config,local_fixture=True)
     def test_missing_production_boundary_is_not_inferred_from_new_parent(self):
         self.cfg['layoutContract'].pop('productionRoot');self.write_cfg()
         with self.assertRaisesRegex(auto.Error,'Unsupported canonical'):auto.Manager(self.config,local_fixture=True)

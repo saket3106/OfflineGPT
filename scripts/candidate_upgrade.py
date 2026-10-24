@@ -38,8 +38,9 @@ class Upgrade:
         self.controller.accepted(commit)
         if not self.fixture:
             if Path(__file__).resolve().parent.parent!=self.root/'admin-runtime'/commit:raise Error('An immutable accepted admin runtime is required')
+            admin_bytes=b.inputs.immutable_files(self.manager.repo,commit,self.manager.cfg['git'],['scripts/'+name for name in sorted(ADMIN)])
             for name in ADMIN:
-                if hashlib.sha256(self.manager.git('show',commit+':scripts/'+name)).hexdigest()!=r.sha(Path(__file__).with_name(name)):raise Error('Upgrade helper dependency differs from accepted source: '+name)
+                if hashlib.sha256(admin_bytes['scripts/'+name]).hexdigest()!=r.sha(Path(__file__).with_name(name)):raise Error('Upgrade helper dependency differs from accepted source: '+name)
     def record(self,path,status,**fields):
         value=json.loads((path/'journal.json').read_text(encoding='utf-8')) if (path/'journal.json').exists() else {}
         value.update(status=status,updated=time.time(),**fields);b.save(path/'events'/(uuid.uuid4().hex+'.json'),value);b.save(path/'journal.json',value);return value
@@ -62,8 +63,9 @@ class Upgrade:
             verified=b.retained(pointer,built);graph=b.inputs.inputs(self.manager.repo,commit,self.manager.cfg['git'])
             if verified['files']!=graph['files']:raise Error('Application inputs changed; build/validate the accepted version before a control-only upgrade')
             runtime=self.root/'runtime'/commit;hashes={}
+            runtime_bytes=b.inputs.immutable_files(self.manager.repo,commit,self.manager.cfg['git'],['scripts/'+name for name in sorted(r.SCRIPTS)])
             for name in sorted(r.SCRIPTS):
-                data=self.manager.git('show',commit+':scripts/'+name);target=r.ordinary(runtime/'scripts'/name);target.parent.mkdir(parents=True,exist_ok=True)
+                data=runtime_bytes['scripts/'+name];target=r.ordinary(runtime/'scripts'/name);target.parent.mkdir(parents=True,exist_ok=True)
                 if target.exists():
                     if target.read_bytes()!=data:raise Error('Never overwrite a changed frozen runtime')
                 else:

@@ -60,6 +60,12 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_canonical*.py' -v
       - name: Immutable batch protocol and dependency lock coverage
         run: python -m unittest discover -s tests -p test_candidate_batch_inputs.py -v
+      - name: Build-only input roles and exact runtime coverage
+        run: python -m unittest discover -s tests -p test_build_input_roles.py -v
+      - name: Exact immutable controller selection and dependency-lock materialization
+        run: python -m unittest discover -s tests -p test_immutable_controller_inputs.py -v
+      - name: Pristine builder identity and independent jobs (real disposable Git)
+        run: python -m unittest discover -s tests -p test_builder_fixture_cache.py -v
       - name: Process-local fixture integrity and cross-repository isolation
         run: python -m unittest discover -s tests -p test_controller_fixture_cache.py -v
       - name: GIL-held diagnostic sampling and owned shutdown (no application launch)

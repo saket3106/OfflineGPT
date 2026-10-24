@@ -20,21 +20,22 @@ _images={}
 _guard=threading.Lock()
 _counts={'captured':0,'restored':0}
 
-def _key(auto,fixtures):
+def _key(auto,fixtures,variant=None):
+    if variant is not None and (not isinstance(variant,str) or len(variant)!=64 or any(c not in "0123456789abcdef" for c in variant)):raise RuntimeError('Invalid pristine fixture variant')
     if hasattr(subprocess.run,'mock_calls') or hasattr(time.time,'mock_calls'):return None
     executable=os.environ.get('OFFLINEGPT_TEST_GIT') or shutil.which('git')
     if not executable:return None
     for name in ('GIT_DIR','GIT_WORK_TREE','GIT_INDEX_FILE','GIT_OBJECT_DIRECTORY','GIT_ALTERNATE_OBJECT_DIRECTORIES'):
         if os.environ.get(name):raise RuntimeError('Controller fixtures require isolated Git environment: '+name)
     p=Path(executable).resolve();s=p.stat()
-    return (str(p),s.st_size,s.st_mtime_ns,id(auto),id(fixtures.SourceSyncTests.setUp),sys.executable,id(time.time),id(subprocess.run),tuple(sorted((k,v) for k,v in os.environ.items() if k.startswith('GIT_'))))
+    return (str(p),s.st_size,s.st_mtime_ns,id(auto),id(fixtures.SourceSyncTests.setUp),sys.executable,id(time.time),id(subprocess.run),tuple(sorted((k,v) for k,v in os.environ.items() if k.startswith('GIT_'))),variant)
 
 def _seal(entries,dirs,cfg,before):
     values={'files':[(name,hashlib.sha256(data).hexdigest(),mode) for name,data,mode in entries],'dirs':dirs,'configuration':cfg.decode('utf-8'),'sourceGitBefore':before}
     return hashlib.sha256(json.dumps(values,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
 
-def remember(case,auto,fixtures):
-    key=_key(auto,fixtures)
+def remember(case,auto,fixtures,*,variant=None):
+    key=_key(auto,fixtures,variant)
     if key is None:return
     with _guard:
         if key in _images:return
@@ -57,8 +58,8 @@ def remember(case,auto,fixtures):
         entries=tuple(entries);dirs=tuple(dirs);cfg=json.dumps(case.cfg,sort_keys=True).encode('utf-8');before=case.f.git_before
         _images[key]=(entries,dirs,cfg,before,_seal(entries,dirs,cfg,before));_counts['captured']+=1
 
-def restore(case,auto,fixtures):
-    key=_key(auto,fixtures)
+def restore(case,auto,fixtures,*,variant=None):
+    key=_key(auto,fixtures,variant)
     with _guard:image=_images.get(key)
     if image is None:return False
     entries,dirs,cfg_bytes,before,expected=image

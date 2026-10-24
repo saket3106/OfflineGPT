@@ -19,6 +19,29 @@ class FixtureCacheTests(unittest.TestCase):
     def make(self):
         case=fixtures.AutoSyncTests('runTest');self.addCleanup(case.doCleanups)
         self.assertTrue(cache.restore(case,fixtures.auto,source_fixtures));return case
+    def test_unbound_initializer_is_order_independent_for_cold_and_warm_callers(self):
+        cache.clear()
+        class Caller(unittest.TestCase):
+            g=fixtures.AutoSyncTests.g
+        for expected_images in (1,1):
+            case=Caller('runTest');self.addCleanup(case.doCleanups)
+            self.assertFalse(hasattr(case,'uncached_setUp'))
+            fixtures.AutoSyncTests.setUp(case)
+            self.assertEqual(case.manager.remote_head(),case.manager.head())
+            self.assertEqual(cache.statistics()['images'],expected_images)
+        self.assertEqual(cache.statistics()['captured'],1)
+        self.assertEqual(cache.statistics()['restored'],1)
+    def test_fixture_variants_cannot_cross_restore(self):
+        variant='a'*64;other='b'*64
+        cache.remember(self.original,fixtures.auto,source_fixtures,variant=variant)
+        case=fixtures.AutoSyncTests('runTest');self.addCleanup(case.doCleanups)
+        self.assertFalse(cache.restore(case,fixtures.auto,source_fixtures,variant=other))
+        self.assertTrue(cache.restore(case,fixtures.auto,source_fixtures,variant=variant))
+        self.assertEqual(case.manager.head(),self.original.manager.head())
+    def test_fixture_variants_require_bounded_immutable_identifiers(self):
+        for variant in (True,3,'a'*63,'x'*64,'../unreviewed'):
+            with self.subTest(variant=variant),self.assertRaisesRegex(RuntimeError,'variant'):
+                cache.restore(fixtures.AutoSyncTests('runTest'),fixtures.auto,source_fixtures,variant=variant)
     def test_restored_git_objects_index_and_clean_status_match_original(self):
         second=self.make()
         self.assertNotEqual(second.f.root,self.original.f.root)

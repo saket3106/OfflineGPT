@@ -37,11 +37,12 @@ def powershell():return str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'Sy
 def powershell_environment():return {**os.environ,'PSModulePath':str(Path(powershell()).parent/'Modules')}
 SMOKE_CHECKS={'devtools_connected','real_webchannel_bridge','composer_visible','chat_store_bridge','synthetic_sqlite_bridge_write','synthetic_sqlite_bridge_read','no_observed_native_model_child','normal_exit','isolated_database_integrity','no_messages_in_fresh_profile','bridge_database_chat_ids_match'}
 def acceptance(smoke,verification,job,exe_hash):
-    checks=smoke.get('checks',{});modules=verification.get('compiledModuleMatches',{})
+    checks=smoke.get('checks',{});modules=verification.get('compiledModuleMatches',{});build_only=verification.get('buildOnlyInputMatches',{})
+    roles_valid=isinstance(build_only,dict) and all(inputs.build_only_descriptor(name,job['graph']['files']) is not None and value==inputs.build_only_descriptor(name,job['graph']['files']) for name,value in build_only.items())
     expected={name for name in job['graph']['files'] if '/' not in name and name.endswith('.py')}
     if (smoke.get('status')!='PASSED' or smoke.get('remainingOwnedPids')!=[] or smoke.get('modelRequestsIssued')!=0
         or smoke.get('exeSha256')!=exe_hash or set(checks)!=SMOKE_CHECKS or any(v is not True for v in checks.values())
-        or not expected or set(modules)!=expected or any(v is not True for v in modules.values())
+        or not expected or not roles_valid or not isinstance(modules,dict) or bool(set(modules)&set(build_only)) or set(modules)|set(build_only)!=expected or any(v is not True for v in modules.values())
         or verification.get('candidateSha256')!=exe_hash or verification.get('sourceCommit')!=job['sourceCommit']
         or verification.get('applicationInputSha256')!=job['graph']['applicationInputSha256']):
         raise Error('Actual packaged acceptance evidence is incomplete or inconsistent')
@@ -101,7 +102,8 @@ class Builder:
         (self.root/'jobs').mkdir(exist_ok=True);self.lock=self.root/'builder.lock';self.pointer=self.root/'current-candidate.json'
         if not (self.root/'control.json').exists():save(self.root/'control.json',{'mode':'running'})
         self.environment=material.load(Path(self.cfg['environmentReceipt']),self.cfg['environmentReceiptSha256'])
-        self.adapters={name:hashlib.sha256(self.manager.git('show',self.cfg['controllerCommit']+':scripts/'+name)).hexdigest() for name in sorted(SCRIPTS)}
+        adapter_bytes=inputs.immutable_files(self.manager.repo,self.cfg['controllerCommit'],self.manager.cfg['git'],['scripts/'+name for name in sorted(SCRIPTS)])
+        self.adapters={name:hashlib.sha256(adapter_bytes['scripts/'+name]).hexdigest() for name in sorted(SCRIPTS)}
         if not fixture:
             for name,h in self.adapters.items():
                 if inputs.sha(Path(__file__).with_name(name))!=h:raise Error('Build controller differs from accepted frozen source: '+name)
@@ -256,15 +258,17 @@ class Builder:
             return {'status':'DISCOVERY_RETRY_VERIFIED','sourceBatch':identifier,'buildKey':job['buildKey'],'recoveryReceipt':str(recovery)}
     def source_snapshot(self,job,attempt,monitor=lambda:None):
         source=attempt/'source';source.mkdir()
+        monitor();source_bytes=inputs.immutable_files(self.manager.repo,job['sourceCommit'],self.manager.cfg['git'],list(job['graph']['files']))
         for name,h in job['graph']['files'].items():
             monitor()
             target=source/inputs.relative(name);target.parent.mkdir(parents=True,exist_ok=True)
-            data=self.manager.git('show',job['sourceCommit']+':'+name);target.write_bytes(data)
-            normalized=data.replace(b'\r\n',b'\n') if Path(name).suffix.lower() in {'.py','.spec','.js','.jsx','.ts','.tsx','.css','.html','.json','.md','.svg','.yaml','.yml','.toml','.txt'} else data
+            data=source_bytes[name];target.write_bytes(data)
+            normalized=inputs.normalized_bytes(name,data)
             if hashlib.sha256(normalized).hexdigest()!=h:raise Error('Immutable source snapshot differs')
         controller=attempt/'controller';controller.mkdir()
+        monitor();adapter_bytes=inputs.immutable_files(self.manager.repo,self.cfg['controllerCommit'],self.manager.cfg['git'],['scripts/'+name for name in self.adapters])
         for name,h in self.adapters.items():
-            data=self.manager.git('show',self.cfg['controllerCommit']+':scripts/'+name)
+            data=adapter_bytes['scripts/'+name]
             if hashlib.sha256(data).hexdigest()!=h:raise Error('Accepted adapter source changed')
             (controller/name).write_bytes(data)
         return source,controller

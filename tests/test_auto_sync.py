@@ -18,7 +18,7 @@ REVIEWS={'complete':True,'content':True,'dependencies':True,'sourceLicenses':Tru
 class AutoSyncTests(unittest.TestCase):
     def setUp(self):
         if fixture_cache.restore(self,auto,fixtures):return
-        self.uncached_setUp()
+        AutoSyncTests.uncached_setUp(self)
         fixture_cache.remember(self,auto,fixtures)
     def uncached_setUp(self):
         fixture=fixtures.SourceSyncTests('runTest');fixture.setUp();self.addCleanup(fixture.doCleanups)

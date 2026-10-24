@@ -10,6 +10,7 @@ import marshal
 from pathlib import Path,PurePosixPath,PureWindowsPath
 import re
 import subprocess
+import sys
 import types
 
 class CandidateError(RuntimeError):pass
@@ -49,11 +50,7 @@ def batch_blobs(repo,executable,oids):
     if offset!=len(raw):raise CandidateError('Unexpected Git batch trailing content')
     return result
 
-def inputs(repo,commit,executable):
-    repo=ordinary(repo)
-    if not re.fullmatch('[0-9a-f]{40}',commit):raise CandidateError('Exact source commit required')
-    policy=json.loads(git(repo,executable,'show',commit+':scripts/source_sync_policy.json'))
-    names=sorted(p for p in policy['managed'] if (p.endswith('.py') and '/' not in p) or p.startswith('frontend-source/') or p in {'Offline GPT.spec','assistant_system_prompt.md'})
+def immutable_tree(repo,commit,executable):
     tree={}
     for entry in git(repo,executable,'ls-tree','-r','-z',commit).split(b'\0'):
         if not entry:continue
@@ -63,6 +60,33 @@ def inputs(repo,commit,executable):
         except (ValueError,UnicodeError) as exc:raise CandidateError('Malformed immutable Git tree') from exc
         if name in tree or len(fields)!=3 or not re.fullmatch('[0-9a-f]{40}',fields[2]):raise CandidateError('Malformed or duplicate immutable Git tree entry')
         tree[name]=fields
+    return tree
+
+def immutable_files(repo,commit,executable,names):
+    """Exact raw blobs for fixed controller/materialization inputs, never worktree bytes."""
+    repo=ordinary(repo)
+    if not re.fullmatch('[0-9a-f]{40}',commit):raise CandidateError('Exact source commit required')
+    if not isinstance(names,(list,tuple)) or len(names)>512:raise CandidateError('Bounded explicit immutable file selection required')
+    if any(not isinstance(name,str) or relative(name)!=name for name in names):raise CandidateError('Non-canonical source path')
+    if len({name.casefold() for name in names})!=len(names):raise CandidateError('Colliding immutable source selection')
+    if not names:return {}
+    tree=immutable_tree(repo,commit,executable);oids=[]
+    for name in names:
+        metadata=tree.get(name,[])
+        if len(metadata)!=3 or metadata[0] not in {'100644','100755'} or metadata[1]!='blob':raise CandidateError('Source input is missing, linked or not a blob: '+name)
+        oids.append(metadata[2])
+    return dict(zip(names,batch_blobs(repo,executable,oids)))
+
+def normalized_bytes(name,data):
+    suffixes={'.py','.spec','.js','.jsx','.ts','.tsx','.css','.html','.json','.md','.svg','.yaml','.yml','.toml','.txt','.lock'}
+    return data.replace(b'\r\n',b'\n') if Path(name).suffix.lower() in suffixes else data
+
+def inputs(repo,commit,executable):
+    repo=ordinary(repo)
+    if not re.fullmatch('[0-9a-f]{40}',commit):raise CandidateError('Exact source commit required')
+    policy=json.loads(git(repo,executable,'show',commit+':scripts/source_sync_policy.json'))
+    names=sorted(p for p in policy['managed'] if (p.endswith('.py') and '/' not in p) or p.startswith('frontend-source/') or p in {'Offline GPT.spec','assistant_system_prompt.md'})
+    tree=immutable_tree(repo,commit,executable)
     tracked=sorted(tree)
     declarations=[p for p in tracked if '/' not in p and re.fullmatch(r'(?:requirements|constraints)(?:[-_.][A-Za-z0-9_-]+)?\.(?:txt|lock)',p)]
     names=sorted(set(names+declarations))
@@ -77,8 +101,7 @@ def inputs(repo,commit,executable):
     for name,data in zip(names,batch_blobs(repo,executable,oids)):
         # Text normalization matches the publication manifest. Asset bytes are
         # never normalized, even if they happen to contain a CRLF sequence.
-        text_suffixes={'.py','.spec','.js','.jsx','.ts','.tsx','.css','.html','.json','.md','.svg','.yaml','.yml','.toml','.txt','.lock'}
-        normalized=data.replace(b'\r\n',b'\n') if Path(name).suffix.lower() in text_suffixes else data
+        normalized=normalized_bytes(name,data)
         files[name]=hashlib.sha256(normalized).hexdigest()
     return {'sourceCommit':commit,'files':files,'applicationInputSha256':digest(files)}
 def structure(code):
@@ -106,17 +129,62 @@ def payload(package,manifest,expected_manifest_sha):
         if path.is_file():physical.add(path.relative_to(package).as_posix())
     if physical!=set(actual):raise CandidateError('Unmanifested or stale candidate files')
     return {'payloadFiles':len(actual),'payloadSha256':digest(actual),'payloadManifestSha256':expected_manifest_sha}
+def build_only_descriptor(name,files):
+    """A narrow first-party build-input role; never a generic missing-module exemption."""
+    if name!='agent_packaging.py' or not all(isinstance(files.get(n),str) and re.fullmatch('[a-f0-9]{64}',files[n]) for n in (name,'Offline GPT.spec')):return None
+    return {'contract':'agent-sdk-collector-v1','sourceSha256':files[name],'specSha256':files['Offline GPT.spec']}
+
+def build_only_proof(name,sources,files):
+    import ast
+    descriptor=build_only_descriptor(name,files)
+    if descriptor is None or name not in sources or 'Offline GPT.spec' not in sources:return None
+    if any(hashlib.sha256(normalized_bytes(n,sources[n])).hexdigest()!=files[n] for n in (name,'Offline GPT.spec')):return None
+    try:
+        spec=ast.parse(sources['Offline GPT.spec']);helper=ast.parse(sources[name]);alias=None
+        for node in spec.body:
+            if isinstance(node,ast.ImportFrom) and node.module=='agent_packaging':
+                for item in node.names:
+                    if item.name=='collect_agent_inputs':alias=item.asname or item.name
+        if alias is None or not any(isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id==alias for n in ast.walk(spec)):return None
+        if any(isinstance(n,ast.Constant) and isinstance(n.value,str) and 'agent_packaging' in n.value for n in ast.walk(spec)):return None
+        if not any(isinstance(n,ast.FunctionDef) and n.name=='collect_agent_inputs' for n in helper.body):return None
+        for node in helper.body:
+            if isinstance(node,ast.Expr) and isinstance(node.value,ast.Constant) and isinstance(node.value.value,str):continue
+            if isinstance(node,(ast.Import,ast.ImportFrom)):
+                modules=[a.name.split('.')[0] for a in node.names] if isinstance(node,ast.Import) else [(node.module or '').split('.')[0]]
+                if any(m not in sys.stdlib_module_names and m!='__future__' for m in modules):return None
+            elif isinstance(node,ast.FunctionDef):
+                if node.decorator_list or any(not isinstance(v,ast.Constant) for v in [*node.args.defaults,*(v for v in node.args.kw_defaults if v is not None)]):return None
+            elif isinstance(node,ast.ClassDef):
+                if node.decorator_list or node.keywords or any(not isinstance(v,ast.Name) or v.id!='RuntimeError' for v in node.bases):return None
+                if any(not isinstance(v,ast.Pass) and not (isinstance(v,ast.Expr) and isinstance(v.value,ast.Constant) and isinstance(v.value.value,str)) for v in node.body):return None
+            else:return None
+        for path,data in sources.items():
+            if path==name or '/' in path or not path.endswith('.py'):continue
+            for node in ast.walk(ast.parse(data)):
+                if isinstance(node,ast.Import) and any(a.name.split('.')[0]=='agent_packaging' for a in node.names):return None
+                if isinstance(node,ast.ImportFrom) and (node.module or '').split('.')[0]=='agent_packaging':return None
+                if isinstance(node,ast.Constant) and isinstance(node.value,str) and 'agent_packaging' in node.value:return None
+    except (SyntaxError,UnicodeError,ValueError,TypeError):return None
+    return descriptor
+
 def associate(repo,commit,executable,package,manifest,manifest_sha):
     graph=inputs(repo,commit,executable);verified=payload(package,manifest,manifest_sha)
     from PyInstaller.archive.readers import CArchiveReader
-    archive=CArchiveReader(str(Path(package)/'Offline GPT.exe'));pyz=archive.open_embedded_archive('PYZ.pyz');modules={}
+    archive=CArchiveReader(str(Path(package)/'Offline GPT.exe'));pyz=archive.open_embedded_archive('PYZ.pyz');modules={};build_only={}
+    selected=[name for name in graph['files'] if name.endswith('.py') and '/' not in name]+['Offline GPT.spec']
+    sources=immutable_files(repo,commit,executable,selected)
     for name in graph['files']:
         if not name.endswith('.py') or '/' in name:continue
-        source=git(repo,executable,'show',commit+':'+name)
+        source=sources[name]
+        if name!='app.py' and Path(name).stem not in pyz.toc:
+            proof=build_only_proof(name,sources,graph['files'])
+            if proof is None:raise CandidateError('Required runtime module is absent: '+name)
+            build_only[name]=proof;continue
         embedded=marshal.loads(archive.extract('app')) if name=='app.py' else pyz.extract(Path(name).stem)
         modules[name]=structure(embedded)==structure(compile(source,'<accepted-source>','exec',dont_inherit=True,optimize=0))
     if not modules or not all(modules.values()):raise CandidateError('Embedded application differs from accepted source')
-    return {**graph,**verified,'compiledModuleMatches':modules,'candidateSha256':sha(Path(package)/'Offline GPT.exe'),
+    return {**graph,**verified,'compiledModuleMatches':modules,'buildOnlyInputMatches':build_only,'candidateSha256':sha(Path(package)/'Offline GPT.exe'),
         'actualBuildRun':False,'scope':'Application-subset and approved full COLLECT payload association only; UI derivation, native provenance, clean-machine and model acceptance are separate gates',
         'binaryPublication':'BLOCKED_NATIVE_PROVENANCE_AND_LICENSES'}
 def main():

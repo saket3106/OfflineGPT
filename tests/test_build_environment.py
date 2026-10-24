@@ -22,6 +22,16 @@ class EnvironmentTests(unittest.TestCase):
         self.dependency=self.roots['frontendDependencies']/'dependency.js';self.dependency.write_text('export const value=1;')
         self.exes={'python':self.python,'node':self.node};self.output=self.root/'private/environment.json'
     def capture(self):return environment.capture(self.roots,self.exes,self.source,self.repo,self.output)
+    def test_inventory_file_set_and_hashes_match_independent_source_bytes(self):
+        nested=self.roots['frontendDependencies']/'nested';nested.mkdir();(nested/'detail.js').write_bytes(b'Exact dependency bytes')
+        expected={}
+        for role,root in self.roots.items():
+            for path in root.rglob('*'):
+                if path.is_file():expected[role+'/'+path.relative_to(root).as_posix()]=hashlib.sha256(path.read_bytes()).hexdigest()
+        value=self.capture()
+        self.assertEqual(value['files'],expected)
+        self.assertEqual(value['fileCount'],len(expected))
+        self.assertEqual(value['executableHashes'],{name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in self.exes.items()})
     def test_capture_and_exact_verification_are_read_only(self):
         before=self.dependency.read_bytes();value=self.capture();h=hashlib.sha256(self.output.read_bytes()).hexdigest()
         self.assertEqual(value['environmentSha256'],environment.verify(self.output,h)['environmentSha256']);self.assertEqual(self.dependency.read_bytes(),before)

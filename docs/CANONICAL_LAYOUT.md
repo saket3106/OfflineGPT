@@ -91,3 +91,32 @@ Legacy overlap and nested layouts remain rejected. It compiles the verified
 validator source bytes directly, so an adjacent timestamp `.pyc` cannot replace
 that boundary. A bare version number never grants canonical-mode permission.
 Source-safety CI explicitly runs these new no-model regression groups.
+
+## Immutable snapshots and build-only evidence
+
+Controller and application snapshots read exact Git blobs in validated batches.
+Object replacement, unsafe modes, malformed frames, hash mismatches, traversal
+and case collisions fail closed. Original file bytes are retained; normalized
+text identity includes dependency lock files and never rewrites binary assets.
+This changes snapshot overhead, not model inference performance.
+
+The first-party Agent SDK collector is a build-time input. Its hash remains in
+the complete application input graph. When it is absent from PYZ, a narrow
+versioned role contract additionally requires its exact helper/spec identities,
+an explicit collector import and call in the spec, conservative declaration
+structure and no recognized runtime consumer. Unknown or ambiguous cases remain
+required runtime modules. This is not a dynamic-import sandbox or a generic
+exception for missing files. A helper actually present in PYZ is compared as
+compiled code normally.
+
+Acceptance accounts for every required source ID through disjoint compiled
+module matches and explicit build-only input proofs. A missing ordinary module,
+forged role, overlapping sets or unknown contract cannot count as success.
+Legacy complete compiled coverage remains valid. No role receipt establishes
+native model behavior, clean-Windows operation or redistribution clearance.
+
+Pristine fixture variants are bounded, source-hash keyed, process-local images.
+Only disposable baseline Git setup is reused. Each test receives independent
+ordinary files, remotes and indexes; private build profiles, queues, jobs and
+candidate pointers are constructed afresh. Real test bodies and transactions run.
+There is no disk cache, model data, shared writable hardlink or cached test result.

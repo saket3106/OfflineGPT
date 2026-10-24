@@ -3,17 +3,22 @@ import importlib.util,json,os,shutil,unittest
 from pathlib import Path
 from unittest.mock import patch
 import test_auto_sync as fixtures
+import controller_fixture_cache as fixture_cache
 spec=importlib.util.spec_from_file_location('candidate_queue_tests',Path(__file__).resolve().parents[1]/'scripts/candidate_builder.py')
 b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
 class BuilderTests(unittest.TestCase):
     def setUp(self):
-        f=fixtures.AutoSyncTests('runTest');f.setUp();self.addCleanup(f.doCleanups);self.f=f
+        f=fixtures.AutoSyncTests('runTest');self.addCleanup(f.doCleanups);self.f=f
         names=['app.py','Offline GPT.spec','assistant_system_prompt.md','frontend-source/package.json','frontend-source/pnpm-lock.yaml','frontend-source/vite.config.js']
-        for name in names:
-            p=f.repo/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('VALUE=1\n' if name=='app.py' else 'Synthetic build input\n')
-        policy=json.loads((f.repo/'scripts/source_sync_policy.json').read_text());policy['managed']=names;(f.repo/'scripts/source_sync_policy.json').write_text(json.dumps(policy))
-        for name in b.SCRIPTS:shutil.copyfile(Path(b.__file__).with_name(name),f.repo/'scripts'/name)
-        f.g('add','--all');f.g('commit','-qm','Synthetic builder inputs');f.g('push','-q','origin','HEAD:refs/heads/codex/test')
+        key=b.inputs.digest({'fixture':b.inputs.sha(Path(__file__)),'adapters':{name:b.inputs.sha(Path(b.__file__).with_name(name)) for name in sorted(b.SCRIPTS)}})
+        if not fixture_cache.restore(f,fixtures.auto,fixtures.fixtures,variant=key):
+            f.setUp()
+            for name in names:
+                p=f.repo/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('VALUE=1\n' if name=='app.py' else 'Synthetic build input\n')
+            policy=json.loads((f.repo/'scripts/source_sync_policy.json').read_text());policy['managed']=names;(f.repo/'scripts/source_sync_policy.json').write_text(json.dumps(policy))
+            for name in b.SCRIPTS:shutil.copyfile(Path(b.__file__).with_name(name),f.repo/'scripts'/name)
+            f.g('add','--all');f.g('commit','-qm','Synthetic builder inputs');f.g('push','-q','origin','HEAD:refs/heads/codex/test')
+            fixture_cache.remember(f,fixtures.auto,fixtures.fixtures,variant=key)
         self.commit=f.g('rev-parse','HEAD').decode().strip();self.private=f.f.root/'build-private';self.private.mkdir()
         roots={k:str(self.private/k) for k in ('pythonBase','pythonEnvironment','frontendDependencies')}
         value={'version':1,'roots':roots,'source':str(f.source),'repository':str(f.repo),'files':{},'internalLinks':{},'executables':{},'executableHashes':{}}
